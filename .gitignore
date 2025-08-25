@@ -1,0 +1,36 @@
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+bin/
+obj/
+Debug/
+Release/
+x64/
+x86/
+
+# Build artifacts
+*.exe
+*.dll
+*.pdb
+*.log
+*.tlog
+*.idb
+*.obj
+
+# Temp files
+*.tmp
+*.temp
+
+# Data files
+*.csv
+data/
+results/
+logs/
+
+# Large files
+*.zip
+*.rar
