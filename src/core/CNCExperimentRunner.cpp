@@ -90,8 +90,9 @@ bool CNCExperimentRunner::loadSystemConfiguration(const std::string& configFile)
     std::cout << "  Main loop frequency: " << systemConfig_.systemTiming.mainLoopFrequency << " Hz" << std::endl;
     std::cout << "  Logging frequency: " << systemConfig_.systemTiming.loggingFrequency << " Hz" << std::endl;
     std::cout << "  Injection buffer capacity: " << systemConfig_.bufferConfig.injectionBufferCapacity << " points" << std::endl;
+    configurationLoaded_ = true;
 
-    return true;
+    return initializeSystemComponents();
 }
 
 bool CNCExperimentRunner::runExperiment(const ExperimentConfig& experimentConfig) {
@@ -479,12 +480,6 @@ void CNCExperimentRunner::performFinalCleanup() {
     if (extractionPipeline_) {
         extractionPipeline_->finalFlush();
     }
-
-    /*if (motionService_) {
-        motionService_->ClearSemaphores();
-    }*/
- 
-
     // Update final results
     updateExperimentResult();
 
@@ -659,6 +654,11 @@ bool CNCExperimentRunner::initializeExperiment(const ExperimentConfig& experimen
         return false;
     }
 
+    // CHANGE: Ensure persistent system components are initialized (once per batch)
+    if (!initializeSystemComponents()) {
+        return false;
+    }
+
     // Reset experiment state
     stopRequested_.store(false);
     lastResult_ = ExperimentResult{};
@@ -679,20 +679,17 @@ bool CNCExperimentRunner::initializeExperiment(const ExperimentConfig& experimen
     logSeedConfiguration(resolvedSeeds);
 
     try {
-        // Phase 1: Initialize MotionService
-        std::cout << "Phase 1: Initializing MotionService..." << std::endl;
-        if (!initializeMotionService()) {
-            setExperimentError("Failed to initialize MotionService");
+        // REMOVE: Phase 1 - MotionService already initialized in initializeSystemComponents()
+
+        // CHANGE: Phase 2 - Only create fresh GenerationPipeline and reconfigure existing pipelines
+        std::cout << "Phase 2: Creating fresh GenerationPipeline and reconfiguring pipelines..." << std::endl;
+        if (!createFreshGenerationPipelineAndReconfigure(experimentConfig)) {
+            setExperimentError("Failed to create/reconfigure pipelines");
             return false;
         }
 
-        // Phase 2: Initialize all pipelines (this generates G-code)
-        std::cout << "Phase 2: Initializing pipelines and generating G-code..." << std::endl;
-        if (!initializePipelines(experimentConfig)) {
-            setExperimentError("Failed to initialize pipelines");
-            return false;
-        }
         InjectionPipeline::resetLineCounter();
+
         std::cout << "Experiment initialization complete!" << std::endl;
         std::cout << "  G-code file: " << generationPipeline_->getGCodeFilePath() << std::endl;
         std::cout << "  Session folder: " << generationPipeline_->getSessionFolder() << std::endl;
@@ -741,3 +738,81 @@ bool CNCExperimentRunner::startExperimentLoop() {
     }
 }
 
+bool CNCExperimentRunner::initializeSystemComponents() {
+    if (systemComponentsInitialized_) {
+        return true; // Already initialized
+    }
+
+    std::cout << "Initializing persistent system components..." << std::endl;
+
+    // Initialize MotionService (expensive SMR connection)
+    if (!initializeMotionService()) {
+        setExperimentError("Failed to initialize MotionService");
+        return false;
+    }
+
+    // Create persistent pipelines (empty, will be configured per experiment)
+    injectionPipeline_ = std::make_unique<InjectionPipeline>();
+    extractionPipeline_ = std::make_unique<ExtractionPipeline>();
+
+    systemComponentsInitialized_ = true;
+    std::cout << "✅ Persistent system components initialized" << std::endl;
+    return true;
+}
+
+bool CNCExperimentRunner::createFreshGenerationPipelineAndReconfigure(const ExperimentConfig& experimentConfig) {
+    std::cout << "Creating fresh GenerationPipeline and reconfiguring persistent pipelines..." << std::endl;
+
+    // Resolve seeds for this experiment
+    SeedConfiguration resolvedSeeds = resolveSeeds(experimentConfig.seedConfig);
+
+    // Create fresh GenerationPipeline for this experiment
+    generationPipeline_ = std::make_unique<GenerationPipeline>(
+        experimentConfig.outputDirectory,
+        resolvedSeeds.gcodeGeneratorSeed,
+        resolvedSeeds.noiseGeneratorSeed,
+        resolvedSeeds.vffGeneratorSeed);
+
+    // Configure the generation pipeline
+    generationPipeline_->setMachineConstraints(systemConfig_.machineConstraints);
+    generationPipeline_->setMotionConfig(systemConfig_.motionConfig);
+    generationPipeline_->setNoiseParams(experimentConfig.noiseParams);
+    generationPipeline_->setNoiseType(experimentConfig.noiseType);
+    generationPipeline_->setVffConfig(experimentConfig.vffConfig);
+
+    // Initialize the generation pipeline
+    if (!generationPipeline_->initialize(experimentConfig.existingGcodeFile, experimentConfig.gcodeParams)) {
+        setExperimentError("Failed to initialize GenerationPipeline");
+        return false;
+    }
+
+    // Now reconfigure the persistent pipelines to point to this new generation pipeline
+    return reconfigurePersistentPipelines(experimentConfig);
+}
+
+bool CNCExperimentRunner::reconfigurePersistentPipelines(const ExperimentConfig& experimentConfig) {
+    std::cout << "Reconfiguring persistent pipelines for new experiment..." << std::endl;
+
+    // Reconfigure injection pipeline to point to new generation pipeline
+    if (!injectionPipeline_->reconfigure(motionService_.get(), generationPipeline_.get())) {
+        setExperimentError("Failed to reconfigure Injection Pipeline");
+        return false;
+    }
+
+    // Reconfigure extraction pipeline with new session folder and expected line numbers
+    std::set<int> expectedLineNumbers = generationPipeline_->getAllLineNumbers();
+    std::string logsDir = getLogsDirectory();
+    std::string spikeLogPath = logsDir + "\\position_spikes.log";
+
+    if (!extractionPipeline_->reconfigure(
+        motionService_.get(),
+        generationPipeline_->getSessionFolder(),
+        expectedLineNumbers,
+        spikeLogPath)) {
+        setExperimentError("Failed to reconfigure Extraction Pipeline");
+        return false;
+    }
+
+    std::cout << "Persistent pipelines reconfigured successfully" << std::endl;
+    return true;
+}

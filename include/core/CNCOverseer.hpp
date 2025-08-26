@@ -102,10 +102,19 @@ public:
      */
     const BatchResult& getBatchResult() const { return batchResult_; }
 
+    // NEW: Initialize persistent experiment runner once per batch
+    bool initializePersistentRunner();
+
+    // NEW: Perform cooperative buffer flush between experiments
+    bool performExperimentTransition();
+
+
 private:
     // Core components
     //std::unique_ptr<CNCExperimentRunner> experimentRunner_;
     std::unique_ptr<HurcoConnection> hurcoConnection_;
+    std::unique_ptr<CNCExperimentRunner> persistentExperimentRunner_;
+    bool persistentRunnerInitialized_ = false;
 
     // System state
     bool systemConfigured_ = false;

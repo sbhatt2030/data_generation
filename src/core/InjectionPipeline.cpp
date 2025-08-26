@@ -15,32 +15,9 @@ InjectionPipeline::InjectionPipeline()
 }
 
 bool InjectionPipeline::initialize(MotionService* motionService, GenerationPipeline* generator) {
-    if (!motionService) {
-        std::cerr << "ERROR: MotionService pointer is null" << std::endl;
-        return false;
-    }
-
-    if (!generator) {
-        std::cerr << "ERROR: GenerationPipeline pointer is null" << std::endl;
-        return false;
-    }
-
-    motionService_ = motionService;
-    generator_ = generator;
-
-    // Initialize statistics
-    stats_ = InjectionStats{};
-    stats_.status = "Initialized";
-    lastLogPoint_ = 0;
-
-    std::cout << "Injection Pipeline initialized successfully" << std::endl;
-    std::cout << "  Buffer capacity: " << InjectionConfig::BUFFER_CAPACITY << " points" << std::endl;
-    std::cout << "  Refill trigger: " << InjectionConfig::REFILL_TRIGGER << " points ("
-        << (100.0 * InjectionConfig::REFILL_TRIGGER / InjectionConfig::BUFFER_CAPACITY) << "%)" << std::endl;
-    std::cout << "  Logging interval: " << InjectionConfig::LOGGING_INTERVAL << " points" << std::endl;
-
-    return true;
+    return reconfigure(motionService, generator);
 }
+
 
 void InjectionPipeline::processOneCycle() {
     // 1. Refill buffer if needed (calls generation internally)
@@ -287,4 +264,41 @@ int InjectionPipeline::getNextLineNumber() {
             return current;
         }
     }
+}
+
+bool InjectionPipeline::reconfigure(MotionService* motionService, GenerationPipeline* generator) {
+    if (!basicInitializationDone_) {
+        // First time setup - establish persistent connections
+        if (!motionService || !generator) {
+            std::cerr << "ERROR: MotionService or GenerationPipeline pointer is null" << std::endl;
+            return false;
+        }
+
+        motionService_ = motionService;
+        basicInitializationDone_ = true;
+
+        std::cout << "Injection Pipeline: First-time initialization complete" << std::endl;
+    }
+
+    // Always update generator reference and reset state for new experiment
+    generator_ = generator;
+    resetExperimentState();
+
+    std::cout << "Injection Pipeline: Reconfigured for new experiment" << std::endl;
+    return true;
+}
+
+void InjectionPipeline::resetExperimentState() {
+    // Clear any remaining buffer contents
+    buffer_.clear();
+
+    // Reset statistics for new experiment
+    stats_ = InjectionStats{};
+    stats_.status = "Reconfigured";
+    lastLogPoint_ = 0;
+
+    // Reset line counter for new experiment
+    resetLineCounter();
+
+    std::cout << "Injection Pipeline: Experiment state reset" << std::endl;
 }

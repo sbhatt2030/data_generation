@@ -20,87 +20,8 @@ bool ExtractionPipeline::initialize(MotionService* motionService,
     const std::string& sessionFolder,
     const std::set<int>& expectedLineNumbers,
     const std::string& spikeLogPath) {
-    fileCounter_ = 1;
-
-    if (!motionService) {
-        std::cerr << "ERROR: MotionService pointer is null" << std::endl;
-        return false;
-    }
-
-    if (sessionFolder.empty()) {
-        std::cerr << "ERROR: Session folder is empty" << std::endl;
-        return false;
-    }
-
-    if (expectedLineNumbers.empty()) {
-        std::cerr << "ERROR: No expected line numbers provided" << std::endl;
-        return false;
-    }
-
-    motionService_ = motionService;
-    sessionFolder_ = sessionFolder;
-    resultsFolder_ = sessionFolder_ + "\\results";
-
-    // Create results directory
-    if (!std::filesystem::exists(resultsFolder_)) {
-        try {
-            std::filesystem::create_directories(resultsFolder_);
-        }
-        catch (const std::exception& e) {
-            std::cerr << "ERROR: Failed to create results folder: " << e.what() << std::endl;
-            return false;
-        }
-    }
-
-    // Initialize statistics
-    stats_ = ExtractionStats{};
-    stats_.status = "Initialized";
-    lastLogPoint_ = 0;
-
-    // Store spike log path for later use
-    spikeLogPath_ = spikeLogPath;
-
-    // Reset spike detection state
-    hasPreviousPosition_ = false;
-    positionSpikeCount_ = 0;
-
-    // Create spike log file with header if path provided
-    if (!spikeLogPath_.empty()) {
-        try {
-            // Ensure directory exists
-            std::filesystem::create_directories(std::filesystem::path(spikeLogPath_).parent_path());
-
-            // Write header to spike log file (only if file doesn't exist)
-            if (!std::filesystem::exists(spikeLogPath_)) {
-                std::ofstream spikeLog(spikeLogPath_, std::ios::app);
-                if (spikeLog.is_open()) {
-                    spikeLog << "# Position Spike Log - Threshold: 1.0mm\n";
-                    spikeLog << "# Format: Timestamp - SPIKE #N: ΔX=Xmm, ΔY=Ymm, ΔZ=Zmm (Line: N, Experiment: ID)\n";
-                    spikeLog << "# Session: " << sessionFolder << "\n";
-                    spikeLog << "# Started: " << getCurrentTimestamp() << "\n";
-                    spikeLog << "#" << std::string(80, '=') << "\n";
-                    spikeLog.close();
-                    std::cout << "Position spike logging enabled: " << spikeLogPath_ << std::endl;
-                }
-            }
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Warning: Could not initialize spike log: " << e.what() << std::endl;
-            spikeLogPath_.clear(); // Disable spike logging on error
-        }
-    }
-
-    // Reset collection state
-    resetBuffer();
-
-    std::cout << "Sequential Extraction Pipeline initialized successfully" << std::endl;
-    std::cout << "File counter reset to 1 for new experiment" << std::endl;
-    std::cout << "  Results folder: " << resultsFolder_ << std::endl;
-    std::cout << "  Fixed buffer size: " << ExtractionConfig::FIXED_BUFFER_SIZE << " points" << std::endl;
-
-    return true;
+    return reconfigure(motionService, sessionFolder, expectedLineNumbers, spikeLogPath);
 }
-
 void ExtractionPipeline::processOneCycle() {
     // 1. Read and process ALL available points from SMR output buffer
     readAllAvailablePoints();
@@ -455,4 +376,74 @@ std::string ExtractionPipeline::getCurrentTimestamp() const {
     localtime_s(&local_time, &time_t);
     ss << std::put_time(&local_time, "%Y-%m-%d %H:%M:%S");
     return ss.str();
+}
+
+bool ExtractionPipeline::reconfigure(MotionService* motionService,
+    const std::string& sessionFolder,
+    const std::set<int>& expectedLineNumbers,
+    const std::string& spikeLogPath) {
+    if (!basicInitializationDone_) {
+        // First time setup - establish persistent connections
+        if (!motionService) {
+            std::cerr << "ERROR: MotionService pointer is null" << std::endl;
+            return false;
+        }
+
+        motionService_ = motionService;
+        basicInitializationDone_ = true;
+
+        std::cout << "Extraction Pipeline: First-time initialization complete" << std::endl;
+    }
+
+    if (sessionFolder.empty()) {
+        std::cerr << "ERROR: Session folder is empty" << std::endl;
+        return false;
+    }
+
+    if (expectedLineNumbers.empty()) {
+        std::cerr << "ERROR: No expected line numbers provided" << std::endl;
+        return false;
+    }
+
+    // Update experiment-specific configuration
+    sessionFolder_ = sessionFolder;
+    resultsFolder_ = sessionFolder_ + "\\results";
+
+    // Create results directory
+    if (!std::filesystem::exists(resultsFolder_)) {
+        try {
+            std::filesystem::create_directories(resultsFolder_);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "ERROR: Failed to create results folder: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    // Reset experiment-specific state
+    resetExperimentState();
+
+    // Setup spike logging if path provided
+    if (!spikeLogPath.empty()) {
+        try {
+            spikeLogPath_ = spikeLogPath;
+            // Create logs directory if it doesn't exist
+            std::filesystem::create_directories(std::filesystem::path(spikeLogPath).parent_path());
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Warning: Could not initialize spike log: " << e.what() << std::endl;
+            spikeLogPath_.clear();
+        }
+    }
+
+    std::cout << "Extraction Pipeline: Reconfigured for new experiment" << std::endl;
+    std::cout << "  Expected line numbers: " << expectedLineNumbers.size() << std::endl;
+    return true;
+}
+
+void ExtractionPipeline::resetPositionTracking() {
+    hasPreviousPosition_ = false;
+    positionSpikeCount_ = 0;
+    prevPosX_ = prevPosY_ = prevPosZ_ = 0.0;
+    currentLineNumber_ = -1;
 }

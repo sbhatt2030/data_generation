@@ -199,6 +199,7 @@ public:
      * @return true if experiment completed successfully
      */
     bool startExperimentLoop();
+
     void logAggregatedSystemStatusWithCNC(ProgramStatus cncStatus, bool completionDetected);
     /**
      * Set CNC connection for direct status polling
@@ -207,6 +208,13 @@ public:
     void setCNCConnection(HurcoConnection* connection) {
         cncConnection_ = connection;
     }
+    bool initializeSystemComponents();
+
+    // NEW: Reconfigure persistent pipelines for new experiment
+    bool reconfigurePersistentPipelines(const ExperimentConfig& experimentConfig);
+
+    // NEW: Create fresh GenerationPipeline and reconfigure existing pipelines
+    bool createFreshGenerationPipelineAndReconfigure(const ExperimentConfig& experimentConfig);
 
 private:
     // System configuration
@@ -214,6 +222,7 @@ private:
     std::string experimentLogFile_;
     std::string systemStatusFile_;
     bool configurationLoaded_ = false;
+    bool systemComponentsInitialized_ = false;
 
     // Pipeline components
     std::unique_ptr<MotionService> motionService_;

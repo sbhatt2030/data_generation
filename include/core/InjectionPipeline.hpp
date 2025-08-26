@@ -93,6 +93,16 @@ public:
     static void resetLineCounter();
     static int getNextLineNumber();
 
+    // NEW: Reconfigure for new experiment (replaces initialize for reuse)
+    bool reconfigure(MotionService* motionService, GenerationPipeline* generator);
+
+    // NEW: Reset experiment-specific state
+    void resetExperimentState();
+
+private:
+    // NEW: Track if basic initialization is done
+    bool basicInitializationDone_ = false;
+
 private:
     // Dependencies (passed by reference for clean architecture)
     MotionService* motionService_;         // Enhanced MotionService with atomic counters
@@ -100,6 +110,7 @@ private:
     static std::atomic<int> globalLineCounter_;
     static std::atomic<bool> countingUp_;
     static constexpr int MAX_LINE_NUMBER = 1000000;
+    bool basicInitializationDone_ = false;
 
 
     // Internal buffer (16k capacity)

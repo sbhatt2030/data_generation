@@ -11,6 +11,7 @@ namespace fs = std::filesystem;
 CNCOverseer::CNCOverseer() {
     //experimentRunner_ = std::make_unique<CNCExperimentRunner>();
     hurcoConnection_ = std::make_unique<HurcoConnection>();
+    initializePersistentRunner();
 }
 
 CNCOverseer::~CNCOverseer() {
@@ -170,51 +171,22 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
     experimentComplete_ = false;
     currentProgramStatus_ = ProgramStatus::UNKNOWN;
 
-    // CREATE FRESH EXPERIMENT RUNNER FOR THIS EXPERIMENT
-    auto experimentRunner = std::make_unique<CNCExperimentRunner>();
-
-    // Load system configuration into this runner
-    std::cout << "Step 1: Initializing fresh experiment runner..." << std::endl;
-    if (!experimentRunner->loadSystemConfiguration(systemConfigPath_)) {
-        setError("Failed to load system configuration into experiment runner");
-        return false;
-    }
-
-    experimentRunner->setCNCConnection(hurcoConnection_.get());
-
-    // **CRITICAL: Clear SMR BEFORE initializing experiment** ⭐
-    std::cout << "Step 1.5: Clearing SMR buffers from previous experiment..." << std::endl;
-    // Force creation of MotionService just to clear buffers
-    {
-        MotionService tempMotionService;
-        int errorCode = 0;
-        if (tempMotionService.InitMotionService(&errorCode) == MOT_SERVICE_INIT_SUCCESS) {
-            //tempMotionService.ClearSemaphores();
-            //std::cout << "✅ SMR buffers cleared" << std::endl;
-        }
-        // tempMotionService destructor handles cleanup
-    }
-
-    // Give RT system time to settle
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-    // Initialize experiment (generates G-code and prepares everything)
-    std::cout << "Step 2: Initializing experiment..." << std::endl;
-    if (!experimentRunner->initializeExperiment(config)) {
+    std::cout << "Step 1: Initializing experiment..." << std::endl;
+    if (!persistentExperimentRunner_->initializeExperiment(config)) {
         setError("Failed to initialize experiment");
         return false;
     }
 
     // Get G-code file path
-    std::string gcodeFilePath = experimentRunner->getGeneratedGCodePath();
+    std::string gcodeFilePath = persistentExperimentRunner_->getGeneratedGCodePath();
     if (gcodeFilePath.empty()) {
         setError("No G-code file generated");
         return false;
     }
-    std::cout << "Step 3: G-code generated: " << gcodeFilePath << std::endl;
+    std::cout << "Step 2: G-code generated: " << gcodeFilePath << std::endl;
 
     // Load and run CNC program
-    std::cout << "Step 4: Starting CNC program..." << std::endl;
+    std::cout << "Step 3: Starting CNC program..." << std::endl;
     if (!hurcoConnection_->loadAndRunProgram(gcodeFilePath)) {
         setError("Failed to send load/run command: " + hurcoConnection_->getLastError());
         return false;
@@ -222,14 +194,14 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
 
 
     // Start data collection (this will block until CNC completes)
-    std::cout << "Step 5: Starting data collection..." << std::endl;
-    if (!experimentRunner->startExperimentLoop()) {
-        setError("Failed to start data collection: " + experimentRunner->getResult().errorMessage);
+    std::cout << "Step 4: Starting data collection..." << std::endl;
+    if (!persistentExperimentRunner_->startExperimentLoop()) {
+        setError("Failed to start data collection: " + persistentExperimentRunner_->getResult().errorMessage);
         return false;
     }
 
     // Experiment is complete when data collection finishes
-    auto finalResult = experimentRunner->getResult();
+    auto finalResult = persistentExperimentRunner_->getResult();
     if (!finalResult.success) {
         setError("Experiment failed: " + finalResult.errorMessage);
         return false;
@@ -267,6 +239,27 @@ ProgramStatus CNCOverseer::getCurrentCNCStatus() {
     }
 
     return hurcoConnection_->getCurrentProgramStatus();
+}
+
+bool CNCOverseer::initializePersistentRunner() {
+    if (persistentRunnerInitialized_) {
+        return true; // Already initialized
+    }
+
+    std::cout << "Initializing persistent experiment runner..." << std::endl;
+
+    persistentExperimentRunner_ = std::make_unique<CNCExperimentRunner>();
+
+    if (!persistentExperimentRunner_->loadSystemConfiguration(systemConfigPath_)) {
+        setError("Failed to load system configuration into persistent runner");
+        return false;
+    }
+
+    persistentExperimentRunner_->setCNCConnection(hurcoConnection_.get());
+    persistentRunnerInitialized_ = true;
+
+    std::cout << "✅ Persistent experiment runner initialized" << std::endl;
+    return true;
 }
 
 //bool CNCOverseer::experimentTerminationCallback() {

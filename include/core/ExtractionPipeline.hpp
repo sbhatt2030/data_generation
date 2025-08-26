@@ -142,12 +142,24 @@ public:
     int getCurrentLineNumber() const { return currentLineNumber_; }
     size_t getPositionSpikeCount() const { return positionSpikeCount_; }
 
+    bool reconfigure(MotionService* motionService,
+        const std::string& sessionFolder,
+        const std::set<int>& expectedLineNumbers,
+        const std::string& spikeLogPath = "");
+
+    // NEW: Reset experiment-specific state
+    void resetExperimentState();
+
+    // NEW: Reset position tracking
+    void resetPositionTracking();
+
 
 private:
     // Dependencies
     MotionService* motionService_;        // Enhanced MotionService with atomic counters
     std::string sessionFolder_;          // Session folder for output
     std::string resultsFolder_;          // Results subfolder for CSV files
+    bool basicInitializationDone_ = false;
 
 
 
