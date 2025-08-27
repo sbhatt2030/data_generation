@@ -27,6 +27,8 @@ x86/
 
 # Data files
 *.csv
+*.txt
+.ico
 data/
 results/
 logs/
@@ -34,3 +36,9 @@ logs/
 # Large files
 *.zip
 *.rar
+/batch_output/baseline
+/build
+/cnc_data_collection
+/config
+/demo_simple
+/demo_sweep/session_2025-06-25_16-24-17_seed294195201
