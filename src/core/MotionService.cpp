@@ -21,7 +21,6 @@
 #include <windows.h>
 #include <iostream>
 #include "core/MotionService.h"
-#include "core/system_constants.hpp"
 #include <cstring>
 #include <cstddef> 
 #include "RtUK.h"
@@ -37,10 +36,11 @@
 #define MOT_SERVICE_WRITE_SEMAPHORE  "MotServiceWriteSemaphore"
 #define RT_MOTION_DATA_NAME          "RTMotionData"
 #define APP_CMD_DATA_NAME            "AppCmdData"
+#define CONTROL_FLAGS_NAME           "ExperimentControlFlags"
 
 //Default time interval of every exchanging data between RT and the external application is 1ms. 
 //The allocated shared memory can hold two seconds data
-#define MOTION_SERVICE_MEM_SIZE      SystemConstants::Buffers::SMR_SHARED_MEMORY_SIZE
+#define MOTION_SERVICE_MEM_SIZE      8000
 
 
 
@@ -72,6 +72,8 @@ MotionService::MotionService(void)
     m_RTMotionData = MotServiceMemType();
     m_AppCmdData = MotServiceMemType();
     m_MotServiceDiagInfo = MotionServiceDiagInfoType();
+    controlFlags_ = nullptr;
+    controlFlagsMemory_ = nullptr;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -117,7 +119,10 @@ MotionService::~MotionService(void)
     {
         OsCloseHandle(m_AppCmdData.hSharedMemory);
     }
-    std::cout << std::endl << "Destructor called " << std::endl;
+
+    if (controlFlagsMemory_ != NULL) {
+        OsCloseHandle(controlFlagsMemory_);
+    }
 }
 
 
@@ -142,33 +147,34 @@ MOT_SERVICE_RETURN_CODE MotionService::InitMotionService(int* pErrCode)
     result = MotServiceMemInit(&m_RTMotionData, sizeof(RTMotionDataType), MOTION_SERVICE_MEM_SIZE, RT_MOTION_DATA_NAME);
     if (result != MOT_SERVICE_INIT_SUCCESS)
     {
-        std::cout << "Motion Data Memory Failed to Init Error Code:" << result << std::endl;
         *pErrCode = result;
     }
 
     result = MotServiceMemInit(&m_AppCmdData, sizeof(AppCmdDataType), MOTION_SERVICE_MEM_SIZE, APP_CMD_DATA_NAME);
     if (result != MOT_SERVICE_INIT_SUCCESS)
     {
-        std::cout << "App Command Memory Failed to Init Error Code:" << result << std::endl;
         *pErrCode = result;
     }
-    std::cout << std::endl << "Initialized SMR Buffers" << std::endl;
     return result;
 
+    result = initializeControlFlags();
+    if (result != MOT_SERVICE_INIT_SUCCESS) {
+        *pErrCode = result;
+    }
 } // InitMotionService
 
-///////////////////////////////////////////////////////////////////////////////
-//
-// Name:
-// AppWriteCmdData
-//
-// Function Description:
-// This function is called by the external applicaiton.
-// 
-// Return value:
-//   None
-//
-///////////////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////
+  //
+  // Name:
+  // AppWriteCmdData
+  //
+  // Function Description:
+  // This function is called by the external applicaiton.
+  // 
+  // Return value:
+  //   None
+  //
+  ///////////////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::AppWriteCmdData(AppCmdDataType* pMsg, long lWaitTime)
 {
     MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
@@ -219,6 +225,22 @@ MOT_SERVICE_RETURN_CODE MotionService::AppReadMotionData(RTMotionDataType* pMsg,
     return result;
 } // AppReadMotionData
 
+bool MotionService::AppCheckInputBufferEmpty() const
+{
+    if (controlFlags_ == nullptr) {
+        return true; // If uninitialized, assume empty to avoid blocking
+    }
+    return controlFlags_->rt_input_buffer_empty;
+}
+bool MotionService::AppSetInputBufferFlushRequest(bool request)
+{
+    if (controlFlags_ == nullptr) {
+        return false;
+    }
+    controlFlags_->app_requests_input_flush = request;
+    return true;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -245,7 +267,13 @@ MOT_SERVICE_RETURN_CODE MotionService::RTReadAppCmdData(AppCmdDataType* pMsg)
     if (result != MOT_SERVICE_READ_SUCCESS)
     {
         m_MotServiceDiagInfo.dwReadSkipCounts++;
+        RTSetInputBufferEmpty(true); // Read times out when empty
     }
+    else
+    {
+        RTSetInputBufferEmpty(false); // Successfully read, so not empty
+    }
+
 
     return result;
 } // RTReadAppCmdData
@@ -282,6 +310,34 @@ MOT_SERVICE_RETURN_CODE MotionService::RTWriteMotionData(RTMotionDataType* pMsg)
 }
 // RTWriteMotionData
 
+bool MotionService::RTCheckInputFlushRequest() const
+{
+    if (controlFlags_ == nullptr) {
+        return false;
+    }
+    return controlFlags_->app_requests_input_flush;
+}
+
+bool MotionService::RTSetInputBufferEmpty(bool request)
+{
+    if (controlFlags_ == nullptr) {
+        return false;
+    }
+    controlFlags_->rt_input_buffer_empty = request;
+    return true;
+}
+
+void MotionService::RTFlushAppCmdBuffer(void)
+{
+    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
+    do
+    {
+        AppCmdDataType msg;
+        result = MotServiceMemRead(&m_AppCmdData, &msg, NO_WAIT);
+    } while (result == MOT_SERVICE_READ_SUCCESS);
+    RTSetInputBufferEmpty(true); // After flushing, buffer is empty
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -300,19 +356,19 @@ MotionServiceDiagInfoType MotionService::ReadMotionServiceDiagInfo(void)
     return m_MotServiceDiagInfo;
 } // ReadMotionServiceDiagInfo
 
-/////////////////////////////////////////////////////////////////////
-// Name:
-// MotServiceMemWrite
-//
-// Function Description:
-//
-// Return value:
-// 
-///////////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////////
+  // Name:
+  // MotServiceMemWrite
+  //
+  // Function Description:
+  //
+  // Return value:
+  // 
+  ///////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemWrite(MotServiceMemType* pMem, void* pMsg, long lWaitTime)
 {
     MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
-    long  dwWaitingResult = 0, dwPrevious = 0, drPrevious = 0;
+    long  dwWaitingResult = 0, dwPrevious = 0;
     int    iOffset = 0;
 
     if (pMem == NULL || pMsg == NULL)
@@ -356,7 +412,7 @@ MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemWrite(MotServiceMemType* pMe
 MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemRead(MotServiceMemType* pMem, void* pMsg, long lWaitTime)
 {
     MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
-    long  dwWaitingResult = 0, dwPrevious = 0, drPrevious = 0;
+    long  dwWaitingResult = 0, dwPrevious = 0;
     int    iOffset = 0;
 
     if (pMem == NULL || pMsg == NULL)
@@ -465,84 +521,36 @@ MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemInit(MotServiceMemType* pMem
     return MOT_SERVICE_INIT_SUCCESS;
 }
 
-bool MotionService::ClearSemaphores() {
-    //std::cout << "Clearing SMR semaphore counts for next experiment..." << std::endl;
+MOT_SERVICE_RETURN_CODE MotionService::initializeControlFlags() {
+    // Try to open existing shared memory first
+#ifdef UNDER_WIN32
+    controlFlagsMemory_ = OsOpenSharedMemory(SHM_MAP_ALL_ACCESS, FALSE, CONTROL_FLAGS_NAME,
+        (void**)&controlFlags_, sizeof(ExperimentControlFlags));
+#else
+    controlFlagsMemory_ = OsOpenSharedMemory(SHM_MAP_ALL_ACCESS, FALSE, CONTROL_FLAGS_NAME,
+        (void**)&controlFlags_);
+#endif
 
-    //bool success = true;
+    if (controlFlagsMemory_ == NULL) {
+        // Create new shared memory if it doesn't exist
+#ifndef RTX64_V4
+        controlFlagsMemory_ = OsCreateSharedMemory(PAGE_READWRITE, 0, sizeof(ExperimentControlFlags),
+            CONTROL_FLAGS_NAME, (void**)&controlFlags_);
+#else
+        controlFlagsMemory_ = OsCreateSharedMemory(SHM_MAP_ALL_ACCESS, 0, sizeof(ExperimentControlFlags),
+            CONTROL_FLAGS_NAME, (void**)&controlFlags_);
+#endif
+    }
 
-    //// Clear RTMotionData semaphores (output buffer - what extraction reads from)
-    //// Drain read semaphore to 0 (no data to read)
-    //int drainedReads = 0;
-    //while (WaitForSingleObject(m_RTMotionData.hReadSemaphore, 0) == WAIT_OBJECT_0) {
-    //    drainedReads++;
-    //}
-    //std::cout << "Drained " << drainedReads << " from RTMotionData read semaphore" << std::endl;
+    if (controlFlagsMemory_ == NULL) {
+        return MOT_SERVICE_MEM_CREATE_OPEN_FAILURE;
+    }
 
-    //// **NEW: Zero out the RTMotionData buffer contents**
-    //if (m_RTMotionData.pDataHead) {
-    //    size_t bufferSize = m_RTMotionData.iMsgSize * m_RTMotionData.iMaxMsgNum;
-    //    memset(m_RTMotionData.pDataHead, 0, bufferSize);
-    //    std::cout << "Zeroed RTMotionData buffer (" << bufferSize << " bytes)" << std::endl;
-    //}
+    // Initialize the structure 
+    if (controlFlags_) {
+        controlFlags_->app_requests_input_flush = false;
+        controlFlags_->rt_input_buffer_empty = true;
+    }
 
-    //// **NEW: Reset RTMotionData buffer pointer to start**
-    //m_RTMotionData.iDataNum = 0;
-
-    //// Reset write semaphore to full capacity
-    //LONG prevWriteCount;
-    //if (ReleaseSemaphore(m_RTMotionData.hWriteSemaphore, m_RTMotionData.iMaxMsgNum, &prevWriteCount)) {
-    //    std::cout << "Reset RTMotionData write semaphore from " << prevWriteCount
-    //        << " to " << m_RTMotionData.iMaxMsgNum << std::endl;
-    //}
-    //else {
-    //    success = false;
-    //}
-
-    //// Clear AppCmdData semaphores (input buffer - what injection writes to)  
-    //// Drain read semaphore to 0 (no commands to read)
-    //int drainedCmds = 0;
-    //while (WaitForSingleObject(m_AppCmdData.hReadSemaphore, 0) == WAIT_OBJECT_0) {
-    //    drainedCmds++;
-    //}
-    //std::cout << "Drained " << drainedCmds << " from AppCmdData read semaphore" << std::endl;
-
-    //// **NEW: Zero out the AppCmdData buffer contents**
-    //if (m_AppCmdData.pDataHead) {
-    //    size_t bufferSize = m_AppCmdData.iMsgSize * m_AppCmdData.iMaxMsgNum;
-    //    memset(m_AppCmdData.pDataHead, 0, bufferSize);
-    //    std::cout << "Zeroed AppCmdData buffer (" << bufferSize << " bytes)" << std::endl;
-    //}
-
-    //// **NEW: Reset AppCmdData buffer pointer to start**
-    //m_AppCmdData.iDataNum = 0;
-
-    //
-    //// Reset write semaphore to full capacity
-    //LONG prevCmdWriteCount;
-    //if (ReleaseSemaphore(m_AppCmdData.hWriteSemaphore, m_AppCmdData.iMaxMsgNum, &prevCmdWriteCount)) {
-    //    std::cout << "Reset AppCmdData write semaphore from " << prevCmdWriteCount
-    //        << " to " << m_AppCmdData.iMaxMsgNum << std::endl;
-    //}
-    //else {
-    //    success = false;
-    //}
-
-    //std::cout << "Semaphore clearing " << (success ? "completed successfully" : "failed") << std::endl;
-    //return success;
-
-    // Drain all read semaphores to 0 - NO OLD DATA SIGNALS
-    while (WaitForSingleObject(m_RTMotionData.hReadSemaphore, 0) == WAIT_OBJECT_0) {}
-    while (WaitForSingleObject(m_AppCmdData.hReadSemaphore, 0) == WAIT_OBJECT_0) {}
-
-    // Reset write semaphores to full capacity
-    while (WaitForSingleObject(m_RTMotionData.hWriteSemaphore, 0) == WAIT_OBJECT_0) {}
-    while (WaitForSingleObject(m_AppCmdData.hWriteSemaphore, 0) == WAIT_OBJECT_0) {}
-    ReleaseSemaphore(m_RTMotionData.hWriteSemaphore, m_RTMotionData.iMaxMsgNum, nullptr);
-    ReleaseSemaphore(m_AppCmdData.hWriteSemaphore, m_AppCmdData.iMaxMsgNum, nullptr);
-
-    // CRITICAL: Reset buffer pointers to start
-    m_RTMotionData.iDataNum = 0;
-    m_AppCmdData.iDataNum = 0;
-
-    return true;
+    return MOT_SERVICE_INIT_SUCCESS;
 }

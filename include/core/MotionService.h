@@ -156,6 +156,17 @@ typedef enum MOT_SERVICE_RETURN_CODE
     MOT_SERVICE_UNKNOWN_FAILURE,
 } MOT_SERVICE_RETURN_CODE, * PMOT_SERVICE_RETURN_CODE;
 
+struct ExperimentControlFlags {
+    // Input buffer control (App → RT)
+    volatile bool app_requests_input_flush;   // App signals RT to drain input buffer
+    volatile bool rt_input_buffer_empty;      // RT signals input buffer is empty
+
+    ExperimentControlFlags() {
+        app_requests_input_flush = false;
+        rt_input_buffer_empty = true;  // Start assuming empty
+    }
+};
+
 /////////////////////////////////////////////////////////////////////////////
 //                        CLASS DEFINITION
 /////////////////////////////////////////////////////////////////////////////
@@ -170,27 +181,31 @@ public:
     MotionServiceDiagInfoType ReadMotionServiceDiagInfo(void);
 
     //APIs called by the application
-    MOT_SERVICE_RETURN_CODE AppReadMotionData(RTMotionDataType* pMsg, long lWaitTime);    //Read motion data from RT 
-    MOT_SERVICE_RETURN_CODE AppWriteCmdData(AppCmdDataType* pMsg, long lWaitTime);       //Send command data to RT
+    MOT_SERVICE_RETURN_CODE AppReadMotionData(RTMotionDataType* pMsg, long lWaitTime); //Read motion data from RT 
+    MOT_SERVICE_RETURN_CODE AppWriteCmdData(AppCmdDataType* pMsg, long lWaitTime);     //Send command data to RT
+    bool AppSetInputBufferFlushRequest(bool request);                                  // App sets/clears input buffer flush request
+    bool AppCheckInputBufferEmpty() const;                                             //App checks if RT input buffer is empty
 
     // APIs called by RT.
-    MOT_SERVICE_RETURN_CODE RTWriteMotionData(RTMotionDataType* pMsg);   //Send motion data from RT. 
-    MOT_SERVICE_RETURN_CODE RTReadAppCmdData(AppCmdDataType* pMsg);      //Read command data to RT
+    MOT_SERVICE_RETURN_CODE RTWriteMotionData(RTMotionDataType* pMsg); //Send motion data from RT. 
+    MOT_SERVICE_RETURN_CODE RTReadAppCmdData(AppCmdDataType* pMsg);    //Read command data to RT
+    bool RTCheckInputFlushRequest() const;                             //Check if app requests input buffer flush
+    bool RTSetInputBufferEmpty(bool request);                          //Signal that RT input buffer is empty
+    void RTFlushAppCmdBuffer(void);                                    // RT flushes the app command buffer
 
-    /**
- * Clear semaphore counts for next experiment
- * Call at end of experiment to reset SMR state
- */
-    bool ClearSemaphores();
 
 private:
-    MotServiceMemType          m_RTMotionData;         //RT motion data to the application
-    MotServiceMemType          m_AppCmdData;           //Application cmd data to RT
-    MotionServiceDiagInfoType  m_MotServiceDiagInfo;   //Internal diagnostic data
+    MotServiceMemType         m_RTMotionData;         //RT motion data to the application
+    MotServiceMemType         m_AppCmdData;           //Application cmd data to RT
+    MotionServiceDiagInfoType m_MotServiceDiagInfo;   //Internal diagnostic data
+
+    ExperimentControlFlags* controlFlags_;
+    HANDLE                    controlFlagsMemory_;
 
     MOT_SERVICE_RETURN_CODE MotServiceMemInit(MotServiceMemType* pMem, int iMsgSize, int iMaxMsgNum, const char* pName);
     MOT_SERVICE_RETURN_CODE MotServiceMemWrite(MotServiceMemType* pMem, void* pMsg, long lWaitTime);
     MOT_SERVICE_RETURN_CODE MotServiceMemRead(MotServiceMemType* pMem, void* pMsg, long lWaitTime);
+    MOT_SERVICE_RETURN_CODE initializeControlFlags();
 };
 
 // End of MotionService definitions
