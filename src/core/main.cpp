@@ -29,7 +29,7 @@ void printUsage(const char* programName) {
 struct Arguments {
     std::string csvFile = "test.csv";  // Default CSV file
     std::string configFile = "config\\system_config.json";
-    std::string outputDir = "C:\\data_collection";
+    std::string outputDir = "D:\\data_collection";
     bool showHelp = false;
     bool valid = true;
     std::string errorMessage;

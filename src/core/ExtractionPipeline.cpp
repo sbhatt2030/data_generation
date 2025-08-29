@@ -18,7 +18,6 @@ ExtractionPipeline::ExtractionPipeline()
 
 bool ExtractionPipeline::initialize(MotionService* motionService,
     const std::string& sessionFolder,
-    const std::set<int>& expectedLineNumbers,
     const std::string& spikeLogPath) {
     fileCounter_ = 1;
 
@@ -29,11 +28,6 @@ bool ExtractionPipeline::initialize(MotionService* motionService,
 
     if (sessionFolder.empty()) {
         std::cerr << "ERROR: Session folder is empty" << std::endl;
-        return false;
-    }
-
-    if (expectedLineNumbers.empty()) {
-        std::cerr << "ERROR: No expected line numbers provided" << std::endl;
         return false;
     }
 

@@ -158,7 +158,7 @@ public:
      * @param experimentConfig Experiment-specific parameters
      * @return true if experiment completed successfully
      */
-    bool runExperiment(const ExperimentConfig& experimentConfig);
+    //bool runExperiment(const ExperimentConfig& experimentConfig);
 
 
     /**

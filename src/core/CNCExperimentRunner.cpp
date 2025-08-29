@@ -65,7 +65,12 @@ CNCExperimentRunner::CNCExperimentRunner()
     : configurationLoaded_(false)
     , mainLoopCounter_(0)
     , loggingInterval_(200) {
-
+    if (!initializeMotionService()) {
+        throw std::runtime_error("Failed to initialize MotionService in constructor");
+    }
+    injectionPipeline_ = std::make_unique<InjectionPipeline>();
+    extractionPipeline_ = std::make_unique<ExtractionPipeline>();
+    
     std::cout << "CNC Experiment Runner initialized" << std::endl;
 }
 
@@ -94,80 +99,74 @@ bool CNCExperimentRunner::loadSystemConfiguration(const std::string& configFile)
     return true;
 }
 
-bool CNCExperimentRunner::runExperiment(const ExperimentConfig& experimentConfig) {
-    if (!configurationLoaded_) {
-        std::cerr << "ERROR: System configuration not loaded. Call loadSystemConfiguration() first." << std::endl;
-        return false;
-    }
-
-    // Reset experiment state
-    stopRequested_.store(false);
-    lastResult_ = ExperimentResult{};
-    experimentStartTime_ = std::chrono::steady_clock::now();
-    mainLoopCounter_ = 0;
-
-    std::cout << "\n" << std::string(80, '=') << std::endl;
-    std::cout << "STARTING CNC DATA COLLECTION EXPERIMENT" << std::endl;
-    std::cout << std::string(80, '=') << std::endl;
-
-    // Log experiment configuration
-    std::cout << "Experiment Parameters:" << std::endl;
-    std::cout << "  Output Directory: " << experimentConfig.outputDirectory << std::endl;
-    std::cout << "  G-code Trajectories: " << experimentConfig.gcodeParams.num_trajectories << std::endl;
-    std::cout << "  Noise Type: " << static_cast<int>(experimentConfig.noiseType) << std::endl;
-    std::cout << "  VFF Generation: " << (experimentConfig.vffConfig.useVffGenerator ? "Enabled" : "Disabled") << std::endl;
-
-    // Resolve and log seed configuration
-    SeedConfiguration resolvedSeeds = resolveSeeds(experimentConfig.seedConfig);
-    logSeedConfiguration(resolvedSeeds);
-
-    try {
-        // Phase 1: Initialize MotionService
-        std::cout << "\nPhase 1: Initializing MotionService..." << std::endl;
-        if (!initializeMotionService()) {
-            setExperimentError("Failed to initialize MotionService");
-            return false;
-        }
-
-        // Phase 2: Initialize all pipelines
-        std::cout << "\nPhase 2: Initializing pipelines..." << std::endl;
-        if (!initializePipelines(experimentConfig)) {
-            setExperimentError("Failed to initialize pipelines");
-            return false;
-        }
-
-        // Phase 3: Execute main processing loop
-        std::cout << "\nPhase 3: Executing main processing loop..." << std::endl;
-        if (!executeMainLoop()) {
-            setExperimentError("Main loop execution failed");
-            return false;
-        }
-
-        // Phase 4: Final cleanup and result compilation
-        std::cout << "\nPhase 4: Final cleanup..." << std::endl;
-        performFinalCleanup();
-
-        // Compile final results
-        updateExperimentResult();
-        lastResult_.success = true;
-
-        std::cout << "\n" << std::string(80, '=') << std::endl;
-        std::cout << "EXPERIMENT COMPLETED SUCCESSFULLY" << std::endl;
-        std::cout << "Session folder: " << lastResult_.sessionFolder << std::endl;
-        std::cout << "Execution time: " << std::fixed << std::setprecision(1)
-            << lastResult_.executionTimeSeconds << " seconds" << std::endl;
-        std::cout << "CSV files written: " << lastResult_.csvFilesWritten << std::endl;
-        std::cout << std::string(80, '=') << std::endl;
-
-        return true;
-
-    }
-    catch (const std::exception& e) {
-        setExperimentError("Exception during experiment: " + std::string(e.what()));
-        performFinalCleanup();
-        return false;
-    }
-}
+//bool CNCExperimentRunner::runExperiment(const ExperimentConfig& experimentConfig) {
+//    if (!configurationLoaded_) {
+//        std::cerr << "ERROR: System configuration not loaded. Call loadSystemConfiguration() first." << std::endl;
+//        return false;
+//    }
+//
+//    // Reset experiment state
+//    stopRequested_.store(false);
+//    lastResult_ = ExperimentResult{};
+//    experimentStartTime_ = std::chrono::steady_clock::now();
+//    mainLoopCounter_ = 0;
+//
+//    std::cout << "\n" << std::string(80, '=') << std::endl;
+//    std::cout << "STARTING CNC DATA COLLECTION EXPERIMENT" << std::endl;
+//    std::cout << std::string(80, '=') << std::endl;
+//
+//    // Log experiment configuration
+//    std::cout << "Experiment Parameters:" << std::endl;
+//    std::cout << "  Output Directory: " << experimentConfig.outputDirectory << std::endl;
+//    std::cout << "  G-code Trajectories: " << experimentConfig.gcodeParams.num_trajectories << std::endl;
+//    std::cout << "  Noise Type: " << static_cast<int>(experimentConfig.noiseType) << std::endl;
+//    std::cout << "  VFF Generation: " << (experimentConfig.vffConfig.useVffGenerator ? "Enabled" : "Disabled") << std::endl;
+//
+//    // Resolve and log seed configuration
+//    SeedConfiguration resolvedSeeds = resolveSeeds(experimentConfig.seedConfig);
+//    logSeedConfiguration(resolvedSeeds);
+//
+//    try {
+//
+//        // Phase 2: Initialize all pipelines
+//        std::cout << "\nPhase 2: Initializing pipelines..." << std::endl;
+//        if (!initializePipelines(experimentConfig)) {
+//            setExperimentError("Failed to initialize pipelines");
+//            return false;
+//        }
+//
+//        // Phase 3: Execute main processing loop
+//        std::cout << "\nPhase 3: Executing main processing loop..." << std::endl;
+//        if (!executeMainLoop()) {
+//            setExperimentError("Main loop execution failed");
+//            return false;
+//        }
+//
+//        // Phase 4: Final cleanup and result compilation
+//        std::cout << "\nPhase 4: Final cleanup..." << std::endl;
+//        performFinalCleanup();
+//
+//        // Compile final results
+//        updateExperimentResult();
+//        lastResult_.success = true;
+//
+//        std::cout << "\n" << std::string(80, '=') << std::endl;
+//        std::cout << "EXPERIMENT COMPLETED SUCCESSFULLY" << std::endl;
+//        std::cout << "Session folder: " << lastResult_.sessionFolder << std::endl;
+//        std::cout << "Execution time: " << std::fixed << std::setprecision(1)
+//            << lastResult_.executionTimeSeconds << " seconds" << std::endl;
+//        std::cout << "CSV files written: " << lastResult_.csvFilesWritten << std::endl;
+//        std::cout << std::string(80, '=') << std::endl;
+//
+//        return true;
+//
+//    }
+//    catch (const std::exception& e) {
+//        setExperimentError("Exception during experiment: " + std::string(e.what()));
+//        performFinalCleanup();
+//        return false;
+//    }
+//}
 
 void CNCExperimentRunner::requestStop() {
     stopRequested_.store(true);
@@ -222,28 +221,16 @@ bool CNCExperimentRunner::initializePipelines(const ExperimentConfig& experiment
             return false;
         }
 
-
-        // Initialize Injection Pipeline (existing)
-        std::cout << "Initializing Injection Pipeline..." << std::endl;
-        injectionPipeline_ = std::make_unique<InjectionPipeline>();
-
         if (!injectionPipeline_->initialize(motionService_.get(), generationPipeline_.get())) {
             std::cerr << "ERROR: Failed to initialize Injection Pipeline" << std::endl;
             return false;
         }
-
-        // Initialize Extraction Pipeline (existing)
-        std::cout << "Initializing Extraction Pipeline..." << std::endl;
-        extractionPipeline_ = std::make_unique<ExtractionPipeline>();
-
-        std::set<int> expectedLineNumbers = generationPipeline_->getAllLineNumbers();
 
         std::string logsDir = getLogsDirectory();
         std::string spikeLogPath = logsDir + "\\position_spikes.log";
 
         if (!extractionPipeline_->initialize(motionService_.get(),
             generationPipeline_->getSessionFolder(),
-            expectedLineNumbers,
             spikeLogPath)) {
             std::cerr << "ERROR: Failed to initialize Extraction Pipeline" << std::endl;
             return false;
@@ -253,7 +240,6 @@ bool CNCExperimentRunner::initializePipelines(const ExperimentConfig& experiment
 
         std::cout << "All pipelines initialized successfully" << std::endl;
         std::cout << "  Session folder: " << generationPipeline_->getSessionFolder() << std::endl;
-        std::cout << "  Expected line numbers: " << expectedLineNumbers.size() << std::endl;
         std::cout << "  Continuous generation: " << (generationPipeline_->isContinuousMode() ? "ENABLED" : "DISABLED") << std::endl;
         return true;
 
@@ -344,11 +330,11 @@ void CNCExperimentRunner::performSingleCycle() {
 }
 
 bool CNCExperimentRunner::shouldContinueExperiment() {
-    // 1. Manual stop request
-    if (stopRequested_.load()) {
-        std::cout << "Manual stop requested" << std::endl;
-        return false;
-    }
+    //// 1. Manual stop request
+    //if (stopRequested_.load()) {
+    //    std::cout << "Manual stop requested" << std::endl;
+    //    return false;
+    //}
 
     // 2. GRACE PERIOD: Don't check CNC completion for first 5 seconds
     auto elapsedTime = getElapsedTimeSeconds();
@@ -361,6 +347,7 @@ bool CNCExperimentRunner::shouldContinueExperiment() {
         if (extractionPipeline_) {
             extractionPipeline_->setComplete();  // Set the completion flag
         }
+		motionService_->AppSetInputBufferFlushRequest(true); // Flush injection buffer
         return false;
     }
 
@@ -479,15 +466,18 @@ void CNCExperimentRunner::performFinalCleanup() {
     if (extractionPipeline_) {
         extractionPipeline_->finalFlush();
     }
-
-    /*if (motionService_) {
-        motionService_->ClearSemaphores();
-    }*/
- 
-
-    // Update final results
+	int loopCount = 0;
+	bool RtBufferEmpty = false;
+    const auto loopPeriod = std::chrono::microseconds(
+        static_cast<long>(1000000.0 / systemConfig_.systemTiming.mainLoopFrequency));
+	// Wait until the RT buffer is empty  and until at least 4 loop cycles have passed
+    while (loopCount < 4 || !RtBufferEmpty) {
+		std::this_thread::sleep_for(loopPeriod);
+        RtBufferEmpty = motionService_->AppCheckInputBufferEmpty();
+		loopCount++;
+    }
+    motionService_->AppSetInputBufferFlushRequest(false);
     updateExperimentResult();
-
     std::cout << "Final cleanup complete" << std::endl;
     std::cout << "  Session folder: " << lastResult_.sessionFolder << std::endl;
 }
@@ -679,12 +669,6 @@ bool CNCExperimentRunner::initializeExperiment(const ExperimentConfig& experimen
     logSeedConfiguration(resolvedSeeds);
 
     try {
-        // Phase 1: Initialize MotionService
-        std::cout << "Phase 1: Initializing MotionService..." << std::endl;
-        if (!initializeMotionService()) {
-            setExperimentError("Failed to initialize MotionService");
-            return false;
-        }
 
         // Phase 2: Initialize all pipelines (this generates G-code)
         std::cout << "Phase 2: Initializing pipelines and generating G-code..." << std::endl;
@@ -723,7 +707,6 @@ bool CNCExperimentRunner::startExperimentLoop() {
 
         // Cleanup and finalize
         performFinalCleanup();
-        updateExperimentResult();
         lastResult_.success = true;
 
         std::cout << "✅ Data collection completed!" << std::endl;

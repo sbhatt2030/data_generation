@@ -9,8 +9,8 @@
 namespace fs = std::filesystem;
 
 CNCOverseer::CNCOverseer() {
-    //experimentRunner_ = std::make_unique<CNCExperimentRunner>();
     hurcoConnection_ = std::make_unique<HurcoConnection>();
+    experimentRunner_ = std::make_unique<CNCExperimentRunner>();
 }
 
 CNCOverseer::~CNCOverseer() {
@@ -28,10 +28,13 @@ bool CNCOverseer::loadSystemConfiguration(const std::string& systemConfigPath) {
 
     std::cout << "Loading system configuration: " << systemConfigPath_ << std::endl;
 
-    /*if (!initializeExperimentRunner()) {
-        setError("Failed to initialize experiment runner with system configuration");
+    std::cout << "Step 1: Initializing fresh experiment runner..." << std::endl;
+    if (!experimentRunner_->loadSystemConfiguration(systemConfigPath_)) {
+        setError("Failed to load system configuration into experiment runner");
         return false;
-    }*/
+    }
+
+    experimentRunner_->setCNCConnection(hurcoConnection_.get());
 
     if (!std::filesystem::exists(systemConfigPath_)) {
         setError("System configuration file not found: " + systemConfigPath_);
@@ -170,17 +173,6 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
     experimentComplete_ = false;
     currentProgramStatus_ = ProgramStatus::UNKNOWN;
 
-    // CREATE FRESH EXPERIMENT RUNNER FOR THIS EXPERIMENT
-    auto experimentRunner = std::make_unique<CNCExperimentRunner>();
-
-    // Load system configuration into this runner
-    std::cout << "Step 1: Initializing fresh experiment runner..." << std::endl;
-    if (!experimentRunner->loadSystemConfiguration(systemConfigPath_)) {
-        setError("Failed to load system configuration into experiment runner");
-        return false;
-    }
-
-    experimentRunner->setCNCConnection(hurcoConnection_.get());
 
     // **CRITICAL: Clear SMR BEFORE initializing experiment** ⭐
     std::cout << "Step 1.5: Clearing SMR buffers from previous experiment..." << std::endl;
@@ -188,10 +180,6 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
     {
         MotionService tempMotionService;
         int errorCode = 0;
-        if (tempMotionService.InitMotionService(&errorCode) == MOT_SERVICE_INIT_SUCCESS) {
-            //tempMotionService.ClearSemaphores();
-            //std::cout << "✅ SMR buffers cleared" << std::endl;
-        }
         // tempMotionService destructor handles cleanup
     }
 
@@ -200,13 +188,13 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
 
     // Initialize experiment (generates G-code and prepares everything)
     std::cout << "Step 2: Initializing experiment..." << std::endl;
-    if (!experimentRunner->initializeExperiment(config)) {
+    if (!experimentRunner_->initializeExperiment(config)) {
         setError("Failed to initialize experiment");
         return false;
     }
 
     // Get G-code file path
-    std::string gcodeFilePath = experimentRunner->getGeneratedGCodePath();
+    std::string gcodeFilePath = experimentRunner_->getGeneratedGCodePath();
     if (gcodeFilePath.empty()) {
         setError("No G-code file generated");
         return false;
@@ -223,13 +211,13 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
 
     // Start data collection (this will block until CNC completes)
     std::cout << "Step 5: Starting data collection..." << std::endl;
-    if (!experimentRunner->startExperimentLoop()) {
-        setError("Failed to start data collection: " + experimentRunner->getResult().errorMessage);
+    if (!experimentRunner_->startExperimentLoop()) {
+        setError("Failed to start data collection: " + experimentRunner_->getResult().errorMessage);
         return false;
     }
 
     // Experiment is complete when data collection finishes
-    auto finalResult = experimentRunner->getResult();
+    auto finalResult = experimentRunner_->getResult();
     if (!finalResult.success) {
         setError("Experiment failed: " + finalResult.errorMessage);
         return false;
