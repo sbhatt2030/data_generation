@@ -480,6 +480,7 @@ void CNCExperimentRunner::performFinalCleanup() {
     updateExperimentResult();
     std::cout << "Final cleanup complete" << std::endl;
     std::cout << "  Session folder: " << lastResult_.sessionFolder << std::endl;
+    generationPipeline_.reset();
 }
 
 

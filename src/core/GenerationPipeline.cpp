@@ -79,6 +79,8 @@ bool GenerationPipeline::initialize(const std::string& gcodeFile, const Generati
     std::cout << "  Master seed: " << masterSeed_ << std::endl;
     std::cout << "  VFF generation: " << (vffConfig_.useVffGenerator ? "Enabled" : "Disabled") << std::endl;
 
+
+
     return true;
 }
 

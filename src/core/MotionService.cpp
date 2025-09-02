@@ -337,7 +337,6 @@ void MotionService::RTFlushAppCmdBuffer(void)
         result = MotServiceMemRead(&m_AppCmdData, &msg, NO_WAIT);;
         iCounter--;
     } while (result == MOT_SERVICE_READ_SUCCESS && iCounter > 0);
-    RTSetInputBufferEmpty(true); // After flushing, buffer is empty
 }
 
 

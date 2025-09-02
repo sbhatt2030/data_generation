@@ -174,20 +174,11 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
     currentProgramStatus_ = ProgramStatus::UNKNOWN;
 
 
-    // **CRITICAL: Clear SMR BEFORE initializing experiment** ⭐
-    std::cout << "Step 1.5: Clearing SMR buffers from previous experiment..." << std::endl;
-    // Force creation of MotionService just to clear buffers
-    {
-        MotionService tempMotionService;
-        int errorCode = 0;
-        // tempMotionService destructor handles cleanup
-    }
-
     // Give RT system time to settle
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     // Initialize experiment (generates G-code and prepares everything)
-    std::cout << "Step 2: Initializing experiment..." << std::endl;
+    std::cout << "Step 1: Initializing experiment..." << std::endl;
     if (!experimentRunner_->initializeExperiment(config)) {
         setError("Failed to initialize experiment");
         return false;
@@ -199,10 +190,10 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
         setError("No G-code file generated");
         return false;
     }
-    std::cout << "Step 3: G-code generated: " << gcodeFilePath << std::endl;
+    std::cout << "Step 2: G-code generated: " << gcodeFilePath << std::endl;
 
     // Load and run CNC program
-    std::cout << "Step 4: Starting CNC program..." << std::endl;
+    std::cout << "Step 3: Starting CNC program..." << std::endl;
     if (!hurcoConnection_->loadAndRunProgram(gcodeFilePath)) {
         setError("Failed to send load/run command: " + hurcoConnection_->getLastError());
         return false;
@@ -210,7 +201,7 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
 
 
     // Start data collection (this will block until CNC completes)
-    std::cout << "Step 5: Starting data collection..." << std::endl;
+    std::cout << "Step 4: Starting data collection..." << std::endl;
     if (!experimentRunner_->startExperimentLoop()) {
         setError("Failed to start data collection: " + experimentRunner_->getResult().errorMessage);
         return false;
