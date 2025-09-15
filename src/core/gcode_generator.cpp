@@ -45,7 +45,7 @@ bool GCodeGenerator::generateGCodeFile(const std::string& filename,
 
         // Add automatic initial dwell (10 seconds)
         file << "G4 P1000" << std::endl;
-        file << "G0.0 X0.0 Y0.0 Z0.0 B0.0 F10000" << std::endl;
+        file << "G0.0 X0.0 Y0.0 Z0.0 B0.0 F5000" << std::endl;
 
         // Generate trajectories based on type
         std::vector<std::string> trajectories;
@@ -70,7 +70,7 @@ bool GCodeGenerator::generateGCodeFile(const std::string& filename,
         if (params.use_dwell_commands) {
             file << formatDwellCommand(params.dwell_time) << std::endl;
         }
-        file << "G1 X0.0 Y0.0 Z0.0 B90.0 F10000" << std::endl;
+        file << "G1 X0.0 Y0.0 Z0.0 B90.0 F5000" << std::endl;
         file << formatDwellCommand(params.dwell_time) << std::endl;
 
         file.close();

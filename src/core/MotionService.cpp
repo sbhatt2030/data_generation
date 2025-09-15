@@ -327,7 +327,7 @@ bool MotionService::RTSetInputBufferEmpty(bool request)
     return true;
 }
 
-void MotionService::RTFlushAppCmdBuffer(void)
+bool MotionService::RTFlushAppCmdBuffer(void)
 {
     MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
     int iCounter = 1000;
@@ -341,8 +341,11 @@ void MotionService::RTFlushAppCmdBuffer(void)
     if (result != MOT_SERVICE_READ_SUCCESS)
     {
         RTSetInputBufferEmpty(true);
+        return true;
     }
+    return false;
 }
+
 
 
 ///////////////////////////////////////////////////////////////////////////////

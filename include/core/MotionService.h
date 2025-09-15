@@ -191,7 +191,7 @@ public:
     MOT_SERVICE_RETURN_CODE RTReadAppCmdData(AppCmdDataType* pMsg);    //Read command data to RT
     bool RTCheckInputFlushRequest() const;                             //Check if app requests input buffer flush
     bool RTSetInputBufferEmpty(bool request);                          //Signal that RT input buffer is empty
-    void RTFlushAppCmdBuffer(void);                                    // RT flushes the app command buffer
+    bool RTFlushAppCmdBuffer(void);                                    // RT flushes the app command buffer
 
 
 private:
