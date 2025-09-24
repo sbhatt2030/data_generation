@@ -31,8 +31,8 @@ ExperimentConfig::ExperimentConfig() {
     gcodeParams.circular_direction = CircularDirection::RANDOM;
     gcodeParams.arc_geometry = ArcGeometry::RANDOM;
     gcodeParams.max_trajectory_time = 2.0;
-    gcodeParams.dwell_time = 0.2;
-    gcodeParams.linear_probability = 0.6;
+    gcodeParams.dwell_time = 0.05;
+    gcodeParams.linear_probability = 0.5;
     gcodeParams.use_dwell_commands = true;
     gcodeParams.write_summary_to_file = true;
 

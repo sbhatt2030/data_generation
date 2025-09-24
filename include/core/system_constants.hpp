@@ -90,7 +90,7 @@ namespace SystemConstants {
         constexpr double MAX_TRAJECTORY_TIME_S = 2.0;          // Maximum time per trajectory
         constexpr double INTER_TRAJECTORY_DWELL_S = 0.5;       // Dwell between trajectories
         constexpr double INITIAL_DWELL_S = 5.0;                // Initial program dwell
-        constexpr double LINEAR_PROBABILITY = 0.6;             // 60% linear moves in mixed mode
+        constexpr double LINEAR_PROBABILITY = 0.5;             // 60% linear moves in mixed mode
 
         // Rapid move settings
         constexpr double RAPID_FEEDRATE_MM_PER_MIN = 5000.0;   // Rapid positioning feedrate
