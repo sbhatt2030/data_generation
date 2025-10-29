@@ -46,8 +46,8 @@ namespace SystemConstants {
 
     namespace Machine {
         // Position limits [mm] - These should already include any safety margins you want
-        const Eigen::Vector3d WORKSPACE_MIN(-510, -290, -240);
-        const Eigen::Vector3d WORKSPACE_MAX(510, 290, 240);
+        const Eigen::Vector3d WORKSPACE_MIN(-500, -270, -220);
+        const Eigen::Vector3d WORKSPACE_MAX(500, 270, 220);
 
         // Motion limits [SI units: mm/s, mm/s², mm/s³] - These should already include any safety margins you want
         const Eigen::Vector3d MAX_VELOCITY(533.0, 533.0, 533.0);      // mm/s

@@ -74,6 +74,12 @@ private:
     struct ContinuousState {
         bool initialized = false;
         int chunkCounter = 0;
+        struct SineComponent {
+            double amplitude;
+            double frequency;
+            double phase;
+        };
+        std::array<std::vector<SineComponent>, 3> currentSines;
     } continuousState_;
 
     // Butterworth filter state for Gaussian noise

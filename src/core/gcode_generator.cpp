@@ -354,11 +354,11 @@ GCodeGenerator::PlaneDefinition GCodeGenerator::getPlaneDefinition(const std::st
         def.normal = Eigen::Vector3d(0, 0, 1);    // Z normal
         def.u_index = 0; def.v_index = 1;
     }
-    else if (plane == "G18") {  // ZX plane
-        def.u_axis = Eigen::Vector3d(0, 0, 1);    // Z axis
-        def.v_axis = Eigen::Vector3d(1, 0, 0);    // X axis
+    else if (plane == "G18") {  // ZX plane (note: Z-X order!)
+        def.u_axis = Eigen::Vector3d(0, 0, 1);    // Z axis (first!)
+        def.v_axis = Eigen::Vector3d(1, 0, 0);    // X axis (second!)
         def.normal = Eigen::Vector3d(0, 1, 0);    // Y normal  
-        def.u_index = 2; def.v_index = 0;
+        def.u_index = 2; def.v_index = 0;         // Z=2, X=0
     }
     else {  // G19 - YZ plane
         def.u_axis = Eigen::Vector3d(0, 1, 0);    // Y axis
@@ -806,34 +806,46 @@ bool GCodeGenerator::calculateArcGeometry(const std::string& plane,
 
     // Get plane indices
     int idx1, idx2, static_idx;
+    bool reverseDirection = false;  // ADD THIS
+
     if (plane == "G17") {      // XY plane
         idx1 = 0; idx2 = 1; static_idx = 2;
+        reverseDirection = false;  // Standard convention
     }
     else if (plane == "G18") { // ZX plane  
-        idx1 = 0; idx2 = 2; static_idx = 1;
+        idx1 = 2; idx2 = 0; static_idx = 1;  // FIXED: Z first, X second
+        reverseDirection = true;   // REVERSED for ZX plane
     }
     else {                   // G19 - YZ plane
         idx1 = 1; idx2 = 2; static_idx = 0;
+        reverseDirection = false;  // Standard convention
     }
 
-    // Calculate center position using consistent geometry
-    Eigen::Vector3d center_2d = calculateCenterPosition2D(start_angle, radius, direction, geometry);
+    // Apply direction reversal for certain planes
+    CircularDirection effectiveDirection = direction;
+    if (reverseDirection) {
+        effectiveDirection = (direction == CircularDirection::CLOCKWISE) ?
+            CircularDirection::COUNTERCLOCKWISE : CircularDirection::CLOCKWISE;
+    }
+
+    // Calculate center position using effective direction
+    Eigen::Vector3d center_2d = calculateCenterPosition2D(start_angle, radius, effectiveDirection, geometry);
 
     // Create 3D center point
     center_point = start_point;
     center_point[idx1] += center_2d.x();
     center_point[idx2] += center_2d.y();
 
-    // Calculate end point using EXACT radius constraint
-    double end_angle = calculateEndAngle(start_angle, arc_angle, direction, geometry);
+    // Calculate end point using effective direction
+    double end_angle = calculateEndAngle(start_angle, arc_angle, effectiveDirection, geometry);
 
     end_point = center_point;
     end_point[idx1] += radius * std::cos(end_angle);
     end_point[idx2] += radius * std::sin(end_angle);
-    end_point[static_idx] = start_point[static_idx]; // Keep static axis unchanged
+    end_point[static_idx] = start_point[static_idx];
 
     // Calculate extreme point (midpoint of arc)
-    double mid_angle = calculateMidAngle(start_angle, end_angle, direction);
+    double mid_angle = calculateMidAngle(start_angle, end_angle, effectiveDirection);
 
     extreme_point = center_point;
     extreme_point[idx1] += radius * std::cos(mid_angle);
@@ -842,13 +854,21 @@ bool GCodeGenerator::calculateArcGeometry(const std::string& plane,
 
     // Calculate center offset (I, J, K values)
     center_offset = Eigen::Vector3d::Zero();
-    center_offset[idx1] = center_point[idx1] - start_point[idx1];
-    center_offset[idx2] = center_point[idx2] - start_point[idx2];
-    // Static axis offset is always 0
+    if (plane == "G17") {  // XY plane
+        center_offset[0] = center_point[0] - start_point[0];  // I
+        center_offset[1] = center_point[1] - start_point[1];  // J
+    }
+    else if (plane == "G18") {  // ZX plane
+        center_offset[0] = center_point[0] - start_point[0];  // I (X offset)
+        center_offset[2] = center_point[2] - start_point[2];  // K (Z offset)
+    }
+    else {  // G19 - YZ plane
+        center_offset[1] = center_point[1] - start_point[1];  // J (Y offset)
+        center_offset[2] = center_point[2] - start_point[2];  // K (Z offset)
+    }
 
     return true;
 }
-
 Eigen::Vector3d GCodeGenerator::calculateCenterPosition2D(double start_angle,
     double radius,
     CircularDirection direction,

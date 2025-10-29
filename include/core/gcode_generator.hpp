@@ -210,23 +210,6 @@ private:
 
     Eigen::Vector3d calculateArcEndPoint(const Eigen::Vector3d& center, double radius, double start_angle, double arc_angle, const PlaneDefinition& plane) const;
 
-    // Simple tangent-based validation
-    bool validateArcPath(const Eigen::Vector3d& center,
-        double radius,
-        const Eigen::Vector3d& start_point,
-        const Eigen::Vector3d& end_point,
-        const std::string& plane) const;
-
-    Eigen::Vector3d getTangentAtPoint(const Eigen::Vector3d& point,
-        const Eigen::Vector3d& center,
-        bool clockwise) const;
-
-    bool checkBoundaryIntersections(const Eigen::Vector3d& center,
-        double radius,
-        const Eigen::Vector3d& tangent_start,
-        const Eigen::Vector3d& tangent_end,
-        const std::string& plane) const;
-
 public:
     explicit GCodeGenerator(const MachineConstraints& constraints = MachineConstraints{},
         unsigned int seed = 0);
