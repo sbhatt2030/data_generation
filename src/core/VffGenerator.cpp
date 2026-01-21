@@ -104,7 +104,7 @@ std::array<std::vector<double>, 3> VffGenerator::generateSmoothGaussian(
     std::array<std::vector<double>, 3> result;
 
     // σ = max_amplitude/3 (ignore min_amplitude)
-    double sigma = params.max_amplitude / 3.0;
+    double sigma = params.max_amplitude;
 
     // Generate for each axis
     for (int axis = 0; axis < 3; ++axis) {
@@ -122,6 +122,11 @@ std::array<std::vector<double>, 3> VffGenerator::generateSmoothGaussian(
             applyButterworthFilterSingleAxis(result[axis][i], axis, params.max_frequency, dt);
         }
     }
+    for (int axis = 0; axis < 3; ++axis) {
+        for (int i = 0; i < chunkSize; ++i) {
+            result[axis][i] = std::clamp(result[axis][i], -params.max_amplitude, params.max_amplitude);
+        }
+    }
 
     return result;
 }
@@ -132,37 +137,62 @@ std::array<std::vector<double>, 3> VffGenerator::generateSmoothGaussianDCShift(
     std::array<std::vector<double>, 3> result;
 
     // Generate random DC shift for each axis: uniform [min_dc_shift, max_dc_shift]
-    std::uniform_real_distribution<double> dc_dist(params.min_dc_shift, params.max_dc_shift);
+    std::uniform_real_distribution<double> amplitude_dist(
+        std::abs(params.min_dc_shift),
+        std::abs(params.max_dc_shift));
+    std::uniform_real_distribution<double> polarity_dist(-1.0, 1.0);
+
     std::array<double, 3> dc_shifts;
     for (int axis = 0; axis < 3; ++axis) {
-        dc_shifts[axis] = dc_dist(rng_);
+        double amplitude = amplitude_dist(rng_);
+        double polarity = (polarity_dist(rng_) >= 0.0) ? 1.0 : -1.0;
+        dc_shifts[axis] = amplitude * polarity;
     }
-
+    for (int axis = 0; axis < 3; ++axis) {
+        if (std::abs(dc_shifts[axis]) >= params.max_amplitude) {
+            std::cerr << "WARNING: DC shift axis " << axis << " (" << dc_shifts[axis]
+                << ") exceeds or equals max_amplitude (" << params.max_amplitude
+                << "). This leaves no room for Gaussian noise!" << std::endl;
+        }
+    }
     // Generate for each axis
+// Generate for each axis
     for (int axis = 0; axis < 3; ++axis) {
         result[axis].resize(chunkSize);
 
         // σ = (max_amplitude - |DC_shift|) / 3
-        double sigma = (params.max_amplitude - std::abs(dc_shifts[axis])) / 3.0;
+        double sigma = (params.max_amplitude - std::abs(dc_shifts[axis]));
 
         // Ensure sigma is positive
         if (sigma <= 0.0) {
             sigma = 0.001; // Minimal noise if DC shift is too large
         }
 
+        // Generate ONLY Gaussian noise (without DC shift yet)
         for (int i = 0; i < chunkSize; ++i) {
-            // Generate Gaussian noise + DC shift
-            result[axis][i] = generateGaussianNoise(0.0, sigma) + dc_shifts[axis];
+            result[axis][i] = generateGaussianNoise(0.0, sigma);
         }
     }
 
-    // Apply 2nd order Butterworth low-pass filter at max_frequency
+    // Apply 2nd order Butterworth low-pass filter to ONLY the Gaussian component
     for (int i = 0; i < chunkSize; ++i) {
         for (int axis = 0; axis < 3; ++axis) {
             applyButterworthFilterSingleAxis(result[axis][i], axis, params.max_frequency, dt);
         }
     }
 
+    // NOW add the DC shift (unfiltered) to the filtered Gaussian noise
+    for (int axis = 0; axis < 3; ++axis) {
+        for (int i = 0; i < chunkSize; ++i) {
+            result[axis][i] += dc_shifts[axis];
+        }
+    }
+
+    for (int axis = 0; axis < 3; ++axis) {
+        for (int i = 0; i < chunkSize; ++i) {
+            result[axis][i] = std::clamp(result[axis][i], -params.max_amplitude, params.max_amplitude);
+        }
+    }
     std::cout << "Generated VFF with DC shifts: X=" << dc_shifts[0]
         << ", Y=" << dc_shifts[1] << ", Z=" << dc_shifts[2] << std::endl;
 
@@ -180,7 +210,9 @@ std::array<std::vector<double>, 3> VffGenerator::generateSparseVff(
     }
 
     std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
-    std::uniform_real_distribution<double> amplitude_dist(params.min_dc_shift, params.max_dc_shift);
+    std::uniform_real_distribution<double> amplitude_dist(
+        std::abs(params.min_dc_shift),
+        std::abs(params.max_dc_shift));
     std::uniform_real_distribution<double> polarity_dist(-1.0, 1.0);
 
     int injection_count = 0;

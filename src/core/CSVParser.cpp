@@ -436,6 +436,7 @@ void CSVParser::setConfigDefaults(ExperimentConfig& config) {
 
     // Set VFF parameter defaults
     config.vffConfig.minAmplitude = 0.1;
+    config.vffConfig.maxAmplitude = config.vffConfig.vffParams.max_amplitude;
     config.vffConfig.minAlpha = 0.01;
     config.vffConfig.maxAlpha = 0.2;
     config.vffConfig.usePerAxisVff = false;
