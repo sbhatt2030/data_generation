@@ -9,9 +9,8 @@
 namespace fs = std::filesystem;
 
 CNCOverseer::CNCOverseer() {
-    //experimentRunner_ = std::make_unique<CNCExperimentRunner>();
     hurcoConnection_ = std::make_unique<HurcoConnection>();
-    initializePersistentRunner();
+    experimentRunner_ = std::make_unique<CNCExperimentRunner>();
 }
 
 CNCOverseer::~CNCOverseer() {
@@ -29,10 +28,13 @@ bool CNCOverseer::loadSystemConfiguration(const std::string& systemConfigPath) {
 
     std::cout << "Loading system configuration: " << systemConfigPath_ << std::endl;
 
-    /*if (!initializeExperimentRunner()) {
-        setError("Failed to initialize experiment runner with system configuration");
+    std::cout << "Step 1: Initializing fresh experiment runner..." << std::endl;
+    if (!experimentRunner_->loadSystemConfiguration(systemConfigPath_)) {
+        setError("Failed to load system configuration into experiment runner");
         return false;
-    }*/
+    }
+
+    experimentRunner_->setCNCConnection(hurcoConnection_.get());
 
     if (!std::filesystem::exists(systemConfigPath_)) {
         setError("System configuration file not found: " + systemConfigPath_);
@@ -171,14 +173,19 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
     experimentComplete_ = false;
     currentProgramStatus_ = ProgramStatus::UNKNOWN;
 
+
+    // Give RT system time to settle
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // Initialize experiment (generates G-code and prepares everything)
     std::cout << "Step 1: Initializing experiment..." << std::endl;
-    if (!persistentExperimentRunner_->initializeExperiment(config)) {
+    if (!experimentRunner_->initializeExperiment(config)) {
         setError("Failed to initialize experiment");
         return false;
     }
 
     // Get G-code file path
-    std::string gcodeFilePath = persistentExperimentRunner_->getGeneratedGCodePath();
+    std::string gcodeFilePath = experimentRunner_->getGeneratedGCodePath();
     if (gcodeFilePath.empty()) {
         setError("No G-code file generated");
         return false;
@@ -195,13 +202,13 @@ bool CNCOverseer::executeSingleExperimentWorkflow(const ExperimentConfig& config
 
     // Start data collection (this will block until CNC completes)
     std::cout << "Step 4: Starting data collection..." << std::endl;
-    if (!persistentExperimentRunner_->startExperimentLoop()) {
-        setError("Failed to start data collection: " + persistentExperimentRunner_->getResult().errorMessage);
+    if (!experimentRunner_->startExperimentLoop()) {
+        setError("Failed to start data collection: " + experimentRunner_->getResult().errorMessage);
         return false;
     }
 
     // Experiment is complete when data collection finishes
-    auto finalResult = persistentExperimentRunner_->getResult();
+    auto finalResult = experimentRunner_->getResult();
     if (!finalResult.success) {
         setError("Experiment failed: " + finalResult.errorMessage);
         return false;

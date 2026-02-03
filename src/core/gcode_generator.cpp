@@ -45,7 +45,7 @@ bool GCodeGenerator::generateGCodeFile(const std::string& filename,
 
         // Add automatic initial dwell (10 seconds)
         file << "G4 P1000" << std::endl;
-        file << "G0.0 X0.0 Y0.0 Z0.0 B0.0 F10000" << std::endl;
+        file << "G0.0 X0.0 Y0.0 Z0.0 B0.0 F5000" << std::endl;
 
         // Generate trajectories based on type
         std::vector<std::string> trajectories;
@@ -70,7 +70,7 @@ bool GCodeGenerator::generateGCodeFile(const std::string& filename,
         if (params.use_dwell_commands) {
             file << formatDwellCommand(params.dwell_time) << std::endl;
         }
-        file << "G1 X0.0 Y0.0 Z0.0 B90.0 F10000" << std::endl;
+        file << "G1 X0.0 Y0.0 Z0.0 B90.0 F5000" << std::endl;
         file << formatDwellCommand(params.dwell_time) << std::endl;
 
         file.close();
@@ -236,11 +236,11 @@ GCodeGenerator::CircularMove GCodeGenerator::generateSingleArcAttempt(
         move.start = lastPosition_;
     }
     else {
-        move.start = Eigen::Vector3d(0.0, 0.0, 0.0);  // Always start at origin
+        move.start = Eigen::Vector3d(0.0, 0.0, 0.0);
         std::cout << "Starting first trajectory at origin (0,0,0)" << std::endl;
     }
 
-    // Generate fresh random parameters for this attempt
+    // Generate random arc parameters
     std::uniform_real_distribution<double> radius_dist(params.min_radius, params.max_radius);
     std::uniform_real_distribution<double> angle_dist(params.min_arc_angle, params.max_arc_angle);
     std::uniform_real_distribution<double> dir_dist(0.0, 1.0);
@@ -255,48 +255,51 @@ GCodeGenerator::CircularMove GCodeGenerator::generateSingleArcAttempt(
     move.direction = (dir_dist(rng_) < 0.5) ? CircularDirection::CLOCKWISE : CircularDirection::COUNTERCLOCKWISE;
     move.geometry = (geom_dist(rng_) < 0.5) ? ArcGeometry::CONCAVE : ArcGeometry::CONVEX;
 
-    // Calculate arc geometry
+    // Calculate arc geometry using existing method
     Eigen::Vector3d center_point, end_point, extreme_point;
-
     if (!calculateArcGeometry(plane, move.start, radius, start_angle, arc_angle,
         move.direction, move.geometry, center_point, end_point,
         extreme_point, move.center_offset)) {
         std::cout << "Arc geometry calculation failed" << std::endl;
-        return move;  // isValid = false
+        return move;
     }
 
+    if (!isPositionValid(end_point)) {
+        std::cout << "Arc endpoint invalid (outside workspace)" << std::endl;
+        return move;
+    }
     // Validate arc radii consistency
     if (!validateArcRadii(move.start, end_point, center_point, radius)) {
         std::cout << "Arc radius validation failed" << std::endl;
-        return move;  // isValid = false
+        return move;
     }
 
-    // Store arc parameters for analytical validation
+    // Store arc parameters
     move.center = center_point;
     move.radius = radius;
     move.start_angle = start_angle;
     move.arc_angle = arc_angle;
 
-    // NEW: Analytical validation instead of sampling
+    // **NEW BULLETPROOF VALIDATION**
     if (!validateCompleteArcPath(center_point, radius, start_angle, arc_angle, plane)) {
-        std::cout << "Arc analytical boundary validation failed" << std::endl;
-        return move;  // isValid = false
+        std::cout << "Arc boundary validation failed" << std::endl;
+        return move;
     }
 
     // All validations passed - finalize the arc
     move.end = end_point;
+    move.isValid = true;
 
     // Calculate feedrate and timing
     double arc_length = radius * std::abs(arc_angle);
     double arc_time_limit = 0.9 * params.max_trajectory_time;
     move.feedrate = calculateOptimalFeedrate(arc_length, arc_time_limit);
     move.estimated_time = estimateTrajectoryTime(arc_length, move.feedrate);
-    move.arc_depth = radius * (1.0 - std::cos(std::abs(arc_angle) / 2.0));  // Correct sagitta calculation
+    move.arc_depth = radius * (1.0 - std::cos(std::abs(arc_angle) / 2.0));
 
     // Update position tracking
     lastPosition_ = move.end;
     hasLastPosition_ = true;
-    move.isValid = true;
 
     std::cout << "Generated valid arc: radius=" << radius << "mm, angle=" << arc_angle_deg
         << "°, depth=" << move.arc_depth << "mm, plane=" << plane << std::endl;
@@ -314,29 +317,31 @@ bool GCodeGenerator::validateCompleteArcPath(const Eigen::Vector3d& center,
     double arc_angle,
     const std::string& plane) const {
 
-    // Get 3D plane definition
-    PlaneDefinition planeInfo = getPlaneDefinition(plane);
-
     // Get effective workspace bounds with safety margin
     Eigen::Vector3d effectiveMin = constraints_.min_position + Eigen::Vector3d(10.0, 10.0, 10.0);
     Eigen::Vector3d effectiveMax = constraints_.max_position - Eigen::Vector3d(10.0, 10.0, 10.0);
 
-    // Check intersection with all 6 workspace boundary planes
-    for (int axis = 0; axis < 3; ++axis) {
-        // Check min boundary for this axis
-        if (doesArcIntersect3DBoundary(center, radius, start_angle, arc_angle,
-            planeInfo, axis, effectiveMin(axis), true)) {
-            return false;
-        }
+    // Get plane definition for coordinate mapping
+    PlaneDefinition planeInfo = getPlaneDefinition(plane);
 
-        // Check max boundary for this axis
-        if (doesArcIntersect3DBoundary(center, radius, start_angle, arc_angle,
-            planeInfo, axis, effectiveMax(axis), false)) {
-            return false;
+    // **NOTE: We'll validate the end point in the calling method since it already calculates it correctly**
+    // This method only validates that the arc path doesn't cross boundaries
+
+    // Check if center is too close to any boundary
+    for (int axis = 0; axis < 3; ++axis) {
+        double distToMinBoundary = center(axis) - effectiveMin(axis);
+        double distToMaxBoundary = effectiveMax(axis) - center(axis);
+
+        if (distToMinBoundary < radius || distToMaxBoundary < radius) {
+            // This axis could have intersections - need detailed check
+            if (!validateAxisBoundary(center, radius, start_angle, arc_angle,
+                planeInfo, axis, effectiveMin(axis), effectiveMax(axis))) {
+                return false;
+            }
         }
     }
 
-    return true;  // No intersections - arc is valid
+    return true; // All boundaries clear
 }
 
 GCodeGenerator::PlaneDefinition GCodeGenerator::getPlaneDefinition(const std::string& plane) const {
@@ -349,11 +354,11 @@ GCodeGenerator::PlaneDefinition GCodeGenerator::getPlaneDefinition(const std::st
         def.normal = Eigen::Vector3d(0, 0, 1);    // Z normal
         def.u_index = 0; def.v_index = 1;
     }
-    else if (plane == "G18") {  // ZX plane
-        def.u_axis = Eigen::Vector3d(0, 0, 1);    // Z axis
-        def.v_axis = Eigen::Vector3d(1, 0, 0);    // X axis
+    else if (plane == "G18") {  // ZX plane (note: Z-X order!)
+        def.u_axis = Eigen::Vector3d(0, 0, 1);    // Z axis (first!)
+        def.v_axis = Eigen::Vector3d(1, 0, 0);    // X axis (second!)
         def.normal = Eigen::Vector3d(0, 1, 0);    // Y normal  
-        def.u_index = 2; def.v_index = 0;
+        def.u_index = 2; def.v_index = 0;         // Z=2, X=0
     }
     else {  // G19 - YZ plane
         def.u_axis = Eigen::Vector3d(0, 1, 0);    // Y axis
@@ -363,105 +368,6 @@ GCodeGenerator::PlaneDefinition GCodeGenerator::getPlaneDefinition(const std::st
     }
 
     return def;
-}
-
-bool GCodeGenerator::doesArcIntersect3DBoundary(const Eigen::Vector3d& center,
-    double radius,
-    double start_angle,
-    double arc_angle,
-    const PlaneDefinition& plane,
-    int boundaryAxis,
-    double boundaryValue,
-    bool isMinBoundary) const {
-
-    // Case 1: Boundary plane is parallel to the arc plane
-    if (std::abs(plane.normal(boundaryAxis)) < 1e-9) {
-        // Arc is entirely in a plane parallel to this boundary
-        // Check if the arc plane intersects the boundary
-        double arcPlanePosition = center(boundaryAxis);
-
-        if (isMinBoundary) {
-            return arcPlanePosition < boundaryValue;  // Arc plane is below min boundary
-        }
-        else {
-            return arcPlanePosition > boundaryValue;  // Arc plane is above max boundary
-        }
-    }
-
-    // Case 2: Boundary plane intersects the arc plane (typical case)
-    // Distance from arc center to the intersection line
-    double distanceToLine = distanceFromCenterToBoundaryLine(center, boundaryAxis,
-        boundaryValue, plane);
-
-    // If distance > radius, no intersection possible
-    if (distanceToLine >= radius) {
-        return false;
-    }
-
-    // Find intersection points of circle with the boundary line
-    std::vector<double> intersectionAngles = findCircleLineIntersectionAngles(
-        center, radius, distanceToLine, Eigen::Vector3d::Zero(), plane, boundaryAxis, boundaryValue);
-
-    // Check if any intersection falls within our arc sweep
-    for (double intersectionAngle : intersectionAngles) {
-        if (isAngleInArcSweep(intersectionAngle, start_angle, arc_angle)) {
-            return true;  // Found intersection within sweep
-        }
-    }
-
-    return false;  // No intersections within sweep
-}
-
-double GCodeGenerator::distanceFromCenterToBoundaryLine(const Eigen::Vector3d& center,
-    int boundaryAxis,
-    double boundaryValue,
-    const PlaneDefinition& plane) const {
-
-    // For a plane defined by coordinate axis = constant,
-    // the distance from point to plane is simply |point[axis] - constant|
-    return std::abs(center(boundaryAxis) - boundaryValue);
-}
-
-std::vector<double> GCodeGenerator::findCircleLineIntersectionAngles(
-    const Eigen::Vector3d& center,
-    double radius,
-    double distanceToLine,
-    const Eigen::Vector3d& lineDirection,
-    const PlaneDefinition& plane,
-    int boundaryAxis,
-    double boundaryValue) const {
-
-    std::vector<double> angles;
-
-    // Calculate the angle offset from center to intersection points
-    double deltaAngle = std::acos(distanceToLine / radius);
-
-    // Find the angle where center "looks" perpendicular to the boundary line
-    double perpendicularAngle = calculatePerpendicularAngleToBoundary(
-        center, boundaryAxis, boundaryValue, plane);
-
-    // Two intersection points (circle crosses line at two points)
-    angles.push_back(normalizeAngle(perpendicularAngle - deltaAngle));
-    angles.push_back(normalizeAngle(perpendicularAngle + deltaAngle));
-
-    return angles;
-}
-
-double GCodeGenerator::calculatePerpendicularAngleToBoundary(const Eigen::Vector3d& center,
-    int boundaryAxis,
-    double boundaryValue,
-    const PlaneDefinition& plane) const {
-
-    // Create a vector from center toward the boundary
-    Eigen::Vector3d toBoundary = Eigen::Vector3d::Zero();
-    toBoundary(boundaryAxis) = (boundaryValue > center(boundaryAxis)) ? 1.0 : -1.0;
-
-    // Project this vector onto the arc plane to get 2D coordinates
-    double u_component = toBoundary.dot(plane.u_axis);
-    double v_component = toBoundary.dot(plane.v_axis);
-
-    // Calculate angle in the 2D plane coordinate system
-    return std::atan2(v_component, u_component);
 }
 
 bool GCodeGenerator::isAngleInArcSweep(double testAngle, double startAngle, double sweepAngle) const {
@@ -900,34 +806,46 @@ bool GCodeGenerator::calculateArcGeometry(const std::string& plane,
 
     // Get plane indices
     int idx1, idx2, static_idx;
+    bool reverseDirection = false;  // ADD THIS
+
     if (plane == "G17") {      // XY plane
         idx1 = 0; idx2 = 1; static_idx = 2;
+        reverseDirection = false;  // Standard convention
     }
     else if (plane == "G18") { // ZX plane  
-        idx1 = 0; idx2 = 2; static_idx = 1;
+        idx1 = 2; idx2 = 0; static_idx = 1;  // FIXED: Z first, X second
+        reverseDirection = true;   // REVERSED for ZX plane
     }
     else {                   // G19 - YZ plane
         idx1 = 1; idx2 = 2; static_idx = 0;
+        reverseDirection = false;  // Standard convention
     }
 
-    // Calculate center position using consistent geometry
-    Eigen::Vector3d center_2d = calculateCenterPosition2D(start_angle, radius, direction, geometry);
+    // Apply direction reversal for certain planes
+    CircularDirection effectiveDirection = direction;
+    if (reverseDirection) {
+        effectiveDirection = (direction == CircularDirection::CLOCKWISE) ?
+            CircularDirection::COUNTERCLOCKWISE : CircularDirection::CLOCKWISE;
+    }
+
+    // Calculate center position using effective direction
+    Eigen::Vector3d center_2d = calculateCenterPosition2D(start_angle, radius, effectiveDirection, geometry);
 
     // Create 3D center point
     center_point = start_point;
     center_point[idx1] += center_2d.x();
     center_point[idx2] += center_2d.y();
 
-    // Calculate end point using EXACT radius constraint
-    double end_angle = calculateEndAngle(start_angle, arc_angle, direction, geometry);
+    // Calculate end point using effective direction
+    double end_angle = calculateEndAngle(start_angle, arc_angle, effectiveDirection, geometry);
 
     end_point = center_point;
     end_point[idx1] += radius * std::cos(end_angle);
     end_point[idx2] += radius * std::sin(end_angle);
-    end_point[static_idx] = start_point[static_idx]; // Keep static axis unchanged
+    end_point[static_idx] = start_point[static_idx];
 
     // Calculate extreme point (midpoint of arc)
-    double mid_angle = calculateMidAngle(start_angle, end_angle, direction);
+    double mid_angle = calculateMidAngle(start_angle, end_angle, effectiveDirection);
 
     extreme_point = center_point;
     extreme_point[idx1] += radius * std::cos(mid_angle);
@@ -936,13 +854,21 @@ bool GCodeGenerator::calculateArcGeometry(const std::string& plane,
 
     // Calculate center offset (I, J, K values)
     center_offset = Eigen::Vector3d::Zero();
-    center_offset[idx1] = center_point[idx1] - start_point[idx1];
-    center_offset[idx2] = center_point[idx2] - start_point[idx2];
-    // Static axis offset is always 0
+    if (plane == "G17") {  // XY plane
+        center_offset[0] = center_point[0] - start_point[0];  // I
+        center_offset[1] = center_point[1] - start_point[1];  // J
+    }
+    else if (plane == "G18") {  // ZX plane
+        center_offset[0] = center_point[0] - start_point[0];  // I (X offset)
+        center_offset[2] = center_point[2] - start_point[2];  // K (Z offset)
+    }
+    else {  // G19 - YZ plane
+        center_offset[1] = center_point[1] - start_point[1];  // J (Y offset)
+        center_offset[2] = center_point[2] - start_point[2];  // K (Z offset)
+    }
 
     return true;
 }
-
 Eigen::Vector3d GCodeGenerator::calculateCenterPosition2D(double start_angle,
     double radius,
     CircularDirection direction,
@@ -1048,4 +974,161 @@ GCodeGenerator::CircularMove GCodeGenerator::createFallbackArc(const GenerationP
     move.plane_code = "G17";
 
     return move;
+}
+
+// New helper method for per-axis boundary validation
+bool GCodeGenerator::validateAxisBoundary(const Eigen::Vector3d& center,
+    double radius, double start_angle, double arc_angle,
+    const PlaneDefinition& plane, int axis,
+    double minBoundary, double maxBoundary) const {
+
+    // If this axis is the normal to the plane, simple check
+    if (std::abs(plane.normal(axis)) > 0.9) {
+        // Arc is in a plane perpendicular to this axis
+        double arcPlanePosition = center(axis);
+        return (arcPlanePosition >= minBoundary && arcPlanePosition <= maxBoundary);
+    }
+
+    // This axis lies in the arc plane - need intersection check
+    return validateInPlaneAxisBoundary(center, radius, start_angle, arc_angle,
+        plane, axis, minBoundary, maxBoundary);
+}
+
+// The core intersection validation logic
+bool GCodeGenerator::validateInPlaneAxisBoundary(const Eigen::Vector3d & center,
+    double radius, double start_angle, double arc_angle,
+    const PlaneDefinition & plane, int axis,
+    double minBoundary, double maxBoundary) const {
+
+    // Check min boundary
+    if (!validateSingleBoundary(center, radius, start_angle, arc_angle,
+        plane, axis, minBoundary, true)) {
+        return false;
+    }
+
+    // Check max boundary  
+    if (!validateSingleBoundary(center, radius, start_angle, arc_angle,
+        plane, axis, maxBoundary, false)) {
+        return false;
+    }
+
+    return true;
+}
+
+// Validate against a single boundary plane
+bool GCodeGenerator::validateSingleBoundary(const Eigen::Vector3d& center,
+    double radius, double start_angle, double arc_angle,
+    const PlaneDefinition& plane, int axis,
+    double boundaryValue, bool isMinBoundary) const {
+
+    // Distance from center to boundary line
+    double distToBoundary = std::abs(center(axis) - boundaryValue);
+
+    // If center is far enough, no intersection possible
+    if (distToBoundary >= radius) {
+        return true; // Safe
+    }
+
+    // Circle intersects this boundary - find intersection angles
+    std::vector<double> intersectionAngles = findBoundaryIntersectionAngles(
+        center, radius, axis, boundaryValue, plane);
+
+    // Check if any intersection falls within our arc sweep
+    for (double angle : intersectionAngles) {
+        if (isAngleInArcSweep(angle, start_angle, arc_angle)) {
+            // Found intersection within sweep - check if it violates boundary
+            Eigen::Vector3d intersectionPoint = getPointOnArc(center, radius, angle, plane);
+
+            if (isMinBoundary && intersectionPoint(axis) < boundaryValue) {
+                return false; // Violates min boundary
+            }
+            if (!isMinBoundary && intersectionPoint(axis) > boundaryValue) {
+                return false; // Violates max boundary  
+            }
+        }
+    }
+
+    return true; // No violations found
+}
+
+// Find where circle intersects a coordinate boundary line
+std::vector<double> GCodeGenerator::findBoundaryIntersectionAngles(
+    const Eigen::Vector3d& center, double radius, int axis,
+    double boundaryValue, const PlaneDefinition& plane) const {
+
+    std::vector<double> angles;
+
+    // Distance from center to boundary
+    double d = center(axis) - boundaryValue;
+
+    // If distance >= radius, no intersection
+    if (std::abs(d) >= radius) {
+        return angles;
+    }
+
+    // Calculate intersection points in the plane coordinate system
+    // The boundary line has equation: axis_coordinate = boundaryValue
+    // Circle has equation: (u-cu)² + (v-cv)² = r²
+    // where (cu,cv) is center in plane coordinates
+
+    double cu = center.dot(plane.u_axis);
+    double cv = center.dot(plane.v_axis);
+
+    // Determine which plane coordinate corresponds to this axis
+    double axis_u_component = plane.u_axis(axis);
+    double axis_v_component = plane.v_axis(axis);
+
+    if (std::abs(axis_u_component) > std::abs(axis_v_component)) {
+        // Axis is primarily in u direction
+        // Solve for v when u satisfies boundary condition
+        double u_at_boundary = (boundaryValue - center(axis)) / axis_u_component + cu;
+        double discriminant = radius * radius - (u_at_boundary - cu) * (u_at_boundary - cu);
+
+        if (discriminant >= 0) {
+            double v_offset = std::sqrt(discriminant);
+            angles.push_back(std::atan2(cv + v_offset, u_at_boundary));
+            if (discriminant > 0) { // Two solutions
+                angles.push_back(std::atan2(cv - v_offset, u_at_boundary));
+            }
+        }
+    }
+    else {
+        // Axis is primarily in v direction  
+        double v_at_boundary = (boundaryValue - center(axis)) / axis_v_component + cv;
+        double discriminant = radius * radius - (v_at_boundary - cv) * (v_at_boundary - cv);
+
+        if (discriminant >= 0) {
+            double u_offset = std::sqrt(discriminant);
+            angles.push_back(std::atan2(v_at_boundary, cu + u_offset));
+            if (discriminant > 0) { // Two solutions
+                angles.push_back(std::atan2(v_at_boundary, cu - u_offset));
+            }
+        }
+    }
+
+    return angles;
+}
+
+// Calculate the actual end point of an arc
+Eigen::Vector3d GCodeGenerator::calculateArcEndPoint(const Eigen::Vector3d& center,
+    double radius, double start_angle, double arc_angle,
+    const PlaneDefinition& plane) const {
+
+    // Calculate end angle based on arc direction
+    double end_angle = start_angle + arc_angle; // arc_angle can be negative for clockwise
+
+    // Get end point on arc
+    return getPointOnArc(center, radius, end_angle, plane);
+}
+
+// Get 3D point on arc given angle in plane coordinate system
+Eigen::Vector3d GCodeGenerator::getPointOnArc(const Eigen::Vector3d& center,
+    double radius, double angle, const PlaneDefinition& plane) const {
+
+    // Convert from plane angle to 3D point
+    double u_coord = radius * std::cos(angle);
+    double v_coord = radius * std::sin(angle);
+
+    // Convert back to 3D coordinates
+    return center + u_coord * plane.u_axis + v_coord * plane.v_axis;
 }

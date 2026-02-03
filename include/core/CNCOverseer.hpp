@@ -111,7 +111,7 @@ public:
 
 private:
     // Core components
-    //std::unique_ptr<CNCExperimentRunner> experimentRunner_;
+    std::unique_ptr<CNCExperimentRunner> experimentRunner_;
     std::unique_ptr<HurcoConnection> hurcoConnection_;
     std::unique_ptr<CNCExperimentRunner> persistentExperimentRunner_;
     bool persistentRunnerInitialized_ = false;

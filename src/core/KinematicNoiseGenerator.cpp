@@ -63,7 +63,12 @@ void KinematicNoiseGenerator::resetContinuousState() {
     continuousState_.initialized = false;
     continuousState_.chunkCounter = 0;
 
-    // Reset Butterworth filter state
+    // Clear sine components
+    for (int axis = 0; axis < 3; ++axis) {
+        continuousState_.currentSines[axis].clear();
+    }
+
+    // Reset Butterworth filter state (existing code)
     butterworth_state_.initialized = false;
     for (int axis = 0; axis < 3; ++axis) {
         butterworth_state_.x_history[axis][0] = butterworth_state_.x_history[axis][1] = 0.0;
@@ -133,32 +138,47 @@ Eigen::Vector3d KinematicNoiseGenerator::generateSmoothGaussianBandpassSample(
 Eigen::Vector3d KinematicNoiseGenerator::generateSumOfSinusoidsSample(
     int sampleIndex, double dt, const NoiseParams& params) {
 
-    Eigen::Vector3d noiseValue;
-    double t = sampleIndex * dt;
-
-    for (int axis = 0; axis < 3; ++axis) {
-        // Pick random number of sines for this axis/sample
+    // Generate NEW sine components at start of chunk (sampleIndex == 0)
+    if (sampleIndex == 0) {
+        std::uniform_real_distribution<double> amp_dist(params.min_amplitude, params.max_amplitude);
+        std::uniform_real_distribution<double> freq_dist(params.min_frequency, params.max_frequency);
+        std::uniform_real_distribution<double> phase_dist(0.0, 2.0 * M_PI);
         std::uniform_int_distribution<int> sine_count_dist(params.min_num_sines, params.max_num_sines);
-        int num_sines = sine_count_dist(rng_);
 
-        double sum = 0.0;
-        for (int sine_idx = 0; sine_idx < num_sines; ++sine_idx) {
-            // Random amplitude [min_amplitude, max_amplitude]
-            std::uniform_real_distribution<double> amp_dist(params.min_amplitude, params.max_amplitude);
-            double amplitude = amp_dist(rng_);
+        // Generate sine components for each axis independently
+        for (int axis = 0; axis < 3; ++axis) {
+            continuousState_.currentSines[axis].clear();
 
-            // Random frequency [min_frequency, max_frequency]  
-            std::uniform_real_distribution<double> freq_dist(params.min_frequency, params.max_frequency);
-            double frequency = freq_dist(rng_);
+            int num_sines = sine_count_dist(rng_);
 
-            // Random phase [0, 2π]
-            std::uniform_real_distribution<double> phase_dist(0.0, 2.0 * M_PI);
-            double phase = phase_dist(rng_);
-
-            sum += amplitude * std::sin(2.0 * M_PI * frequency * t + phase);
+            for (int i = 0; i < num_sines; ++i) {
+                continuousState_.currentSines[axis].push_back({
+                    amp_dist(rng_),
+                    freq_dist(rng_),
+                    phase_dist(rng_)
+                    });
+            }
         }
 
-        noiseValue(axis) = sum / std::sqrt(static_cast<double>(num_sines)); // Normalize
+        std::cout << "Generated new sine components: X="
+            << continuousState_.currentSines[0].size() << " sines, Y="
+            << continuousState_.currentSines[1].size() << " sines, Z="
+            << continuousState_.currentSines[2].size() << " sines" << std::endl;
+    }
+
+    // Evaluate using SAME sine components for entire chunk
+    double t = sampleIndex * dt;
+    Eigen::Vector3d noiseValue;
+
+    for (int axis = 0; axis < 3; ++axis) {
+        double sum = 0.0;
+        for (const auto& sine : continuousState_.currentSines[axis]) {
+            sum += sine.amplitude * std::sin(2.0 * M_PI * sine.frequency * t + sine.phase);
+        }
+
+        // Normalize by sqrt(N) for consistent RMS
+        int num_sines = continuousState_.currentSines[axis].size();
+        noiseValue(axis) = (num_sines > 0) ? sum / std::sqrt(static_cast<double>(num_sines)) : 0.0;
     }
 
     return noiseValue;

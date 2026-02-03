@@ -95,8 +95,7 @@ public:
      * @return true if initialization successful
      */
     bool initialize(MotionService* motionService,
-        const std::string& sessionFolder,
-        const std::set<int>& expectedLineNumbers, 
+        const std::string& sessionFolder, 
         const std::string& spikeLogPath = "");
 
     /**

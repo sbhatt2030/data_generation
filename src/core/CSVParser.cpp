@@ -436,6 +436,7 @@ void CSVParser::setConfigDefaults(ExperimentConfig& config) {
 
     // Set VFF parameter defaults
     config.vffConfig.minAmplitude = 0.1;
+    config.vffConfig.maxAmplitude = config.vffConfig.vffParams.max_amplitude;
     config.vffConfig.minAlpha = 0.01;
     config.vffConfig.maxAlpha = 0.2;
     config.vffConfig.usePerAxisVff = false;
@@ -447,8 +448,8 @@ void CSVParser::setConfigDefaults(ExperimentConfig& config) {
 
     // Set G-code generation defaults
     config.gcodeParams.max_trajectory_time = 2.0;
-    config.gcodeParams.dwell_time = 0.5;
-    config.gcodeParams.linear_probability = 0.6;
+    config.gcodeParams.dwell_time = 0.05;
+    config.gcodeParams.linear_probability = 0.5;
     config.gcodeParams.use_dwell_commands = true;
     config.gcodeParams.write_summary_to_file = true;
 

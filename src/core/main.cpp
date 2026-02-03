@@ -2,6 +2,23 @@
 #include <iostream>
 #include <string>
 #include <cstdlib>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+
+/**
+ * get current timestamp as string for unique directory names
+ */
+std::string getTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+
+    std::stringstream ss;
+    std::tm local_time;
+    localtime_s(&local_time, &time_t);
+    ss << std::put_time(&local_time, "%Y-%m-%d_%H-%M-%S");
+    return ss.str();
+}
 /**
  * Print usage information
  */
@@ -29,7 +46,7 @@ void printUsage(const char* programName) {
 struct Arguments {
     std::string csvFile = "test.csv";  // Default CSV file
     std::string configFile = "config\\system_config.json";
-    std::string outputDir = "C:\\data_collection";
+    std::string outputDir = "D:\\data_collection_" + getTimestamp();
     bool showHelp = false;
     bool valid = true;
     std::string errorMessage;

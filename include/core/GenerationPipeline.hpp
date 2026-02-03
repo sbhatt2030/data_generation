@@ -23,15 +23,6 @@
 /**
  * VFF configuration
  */
-struct VffParams {
-    double max_amplitude = 10.0;
-    double dc_shift_min = -5.0;
-    double dc_shift_max = 15.0;
-    double sparse_probability = 0.02;
-    double min_frequency = 0.1;
-    double max_frequency = 25.0;
-    double smoothness_factor = 0.9;
-};
 
 
 
@@ -39,14 +30,7 @@ struct VffConfig {
     bool useVffGenerator = true;
     VffType vffType = VffType::NO_VFF;
 
-    // NEW: Add VffParams structure
-    struct VffParams {
-        double min_dc_shift = -5.0;
-        double max_dc_shift = 5.0;
-        double max_amplitude = 10.0;
-        double max_frequency = 50.0;
-        double sparse_probability = 0.02;
-    } vffParams;
+    VffGenerator::VffParams vffParams;
 
     // Legacy fields (keep for compatibility)
     double minAmplitude = 0.1;

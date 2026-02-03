@@ -79,6 +79,8 @@ bool GenerationPipeline::initialize(const std::string& gcodeFile, const Generati
     std::cout << "  Master seed: " << masterSeed_ << std::endl;
     std::cout << "  VFF generation: " << (vffConfig_.useVffGenerator ? "Enabled" : "Disabled") << std::endl;
 
+
+
     return true;
 }
 
@@ -161,7 +163,11 @@ void GenerationPipeline::addVFFToChunk(std::vector<InputDataPoint>& chunk) {
                 vffConfig_.fixedAlphas);
         }
         else {
-            vffSignals = vffGenerator_->generateAllAxes();
+            vffSignals = vffGenerator_->generateVffChunk(
+                chunk.size(),
+                vffConfig_.vffType,
+                vffConfig_.vffParams,
+                motionConfig_.getTimeStep());
         }
 
         // Add VFF data to each point in the chunk
@@ -343,8 +349,15 @@ void GenerationPipeline::saveVffConfigToFile() const {
         vffFile << "=== VFF Generation Configuration ===" << std::endl;
         vffFile << "Use VFF Generator: " << (vffConfig_.useVffGenerator ? "Yes" : "No") << std::endl;
         vffFile << "VFF Type: " << static_cast<int>(vffConfig_.vffType) << std::endl;
-        vffFile << "Min Amplitude: " << vffConfig_.minAmplitude << std::endl;
-        vffFile << "Max Amplitude: " << vffConfig_.maxAmplitude << std::endl;
+        vffFile << "Min DC Shift: " << vffConfig_.vffParams.min_dc_shift << std::endl;
+        vffFile << "Max DC Shift: " << vffConfig_.vffParams.max_dc_shift << std::endl;
+        vffFile << "Max Amplitude: " << vffConfig_.vffParams.max_amplitude << std::endl;
+        vffFile << "Max Frequency: " << vffConfig_.vffParams.max_frequency << std::endl;
+        vffFile << "Sparse Probability: " << vffConfig_.vffParams.sparse_probability << std::endl;
+        vffFile << std::endl;
+        vffFile << "--- Legacy Fields (for compatibility) ---" << std::endl;
+        vffFile << "Min Amplitude (legacy): " << vffConfig_.minAmplitude << std::endl;
+        vffFile << "Max Amplitude (legacy): " << vffConfig_.maxAmplitude << std::endl;
 
         vffFile.close();
         std::cout << "VFF configuration saved to: " << vffConfigPath << std::endl;

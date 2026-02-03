@@ -21,7 +21,6 @@
 #include <windows.h>
 #include <iostream>
 #include "core/MotionService.h"
-#include "core/system_constants.hpp"
 #include <cstring>
 #include <cstddef> 
 #include "RtUK.h"
@@ -41,7 +40,7 @@
 
 //Default time interval of every exchanging data between RT and the external application is 1ms. 
 //The allocated shared memory can hold two seconds data
-#define MOTION_SERVICE_MEM_SIZE      SystemConstants::Buffers::SMR_SHARED_MEMORY_SIZE
+#define MOTION_SERVICE_MEM_SIZE      8000
 
 
 
@@ -120,7 +119,6 @@ MotionService::~MotionService(void)
     {
         OsCloseHandle(m_AppCmdData.hSharedMemory);
     }
-    std::cout << std::endl << "Destructor called " << std::endl;
 
     if (controlFlagsMemory_ != NULL) {
         OsCloseHandle(controlFlagsMemory_);
@@ -149,38 +147,34 @@ MOT_SERVICE_RETURN_CODE MotionService::InitMotionService(int* pErrCode)
     result = MotServiceMemInit(&m_RTMotionData, sizeof(RTMotionDataType), MOTION_SERVICE_MEM_SIZE, RT_MOTION_DATA_NAME);
     if (result != MOT_SERVICE_INIT_SUCCESS)
     {
-        std::cout << "Motion Data Memory Failed to Init Error Code:" << result << std::endl;
         *pErrCode = result;
     }
 
     result = MotServiceMemInit(&m_AppCmdData, sizeof(AppCmdDataType), MOTION_SERVICE_MEM_SIZE, APP_CMD_DATA_NAME);
     if (result != MOT_SERVICE_INIT_SUCCESS)
     {
-        std::cout << "App Command Memory Failed to Init Error Code:" << result << std::endl;
         *pErrCode = result;
     }
-    std::cout << std::endl << "Initialized SMR Buffers" << std::endl;
     return result;
 
     result = initializeControlFlags();
     if (result != MOT_SERVICE_INIT_SUCCESS) {
-        std::cout << "Control Flags Memory Failed to Init Error Code:" << result << std::endl;
         *pErrCode = result;
     }
 } // InitMotionService
 
-///////////////////////////////////////////////////////////////////////////////
-//
-// Name:
-// AppWriteCmdData
-//
-// Function Description:
-// This function is called by the external applicaiton.
-// 
-// Return value:
-//   None
-//
-///////////////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////
+  //
+  // Name:
+  // AppWriteCmdData
+  //
+  // Function Description:
+  // This function is called by the external applicaiton.
+  // 
+  // Return value:
+  //   None
+  //
+  ///////////////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::AppWriteCmdData(AppCmdDataType* pMsg, long lWaitTime)
 {
     MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
@@ -231,6 +225,22 @@ MOT_SERVICE_RETURN_CODE MotionService::AppReadMotionData(RTMotionDataType* pMsg,
     return result;
 } // AppReadMotionData
 
+bool MotionService::AppCheckInputBufferEmpty() const
+{
+    if (controlFlags_ == nullptr) {
+        return true; // If uninitialized, assume empty to avoid blocking
+    }
+    return controlFlags_->rt_input_buffer_empty;
+}
+bool MotionService::AppSetInputBufferFlushRequest(bool request)
+{
+    if (controlFlags_ == nullptr) {
+        return false;
+    }
+    controlFlags_->app_requests_input_flush = request;
+    return true;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -257,7 +267,13 @@ MOT_SERVICE_RETURN_CODE MotionService::RTReadAppCmdData(AppCmdDataType* pMsg)
     if (result != MOT_SERVICE_READ_SUCCESS)
     {
         m_MotServiceDiagInfo.dwReadSkipCounts++;
+        RTSetInputBufferEmpty(true); // Read times out when empty
     }
+    else
+    {
+        RTSetInputBufferEmpty(false); // Successfully read, so not empty
+    }
+
 
     return result;
 } // RTReadAppCmdData
@@ -327,6 +343,43 @@ MOT_SERVICE_RETURN_CODE MotionService::RTWriteMotionData(RTMotionDataType* pMsg)
 }
 // RTWriteMotionData
 
+bool MotionService::RTCheckInputFlushRequest() const
+{
+    if (controlFlags_ == nullptr) {
+        return false;
+    }
+    return controlFlags_->app_requests_input_flush;
+}
+
+bool MotionService::RTSetInputBufferEmpty(bool request)
+{
+    if (controlFlags_ == nullptr) {
+        return false;
+    }
+    controlFlags_->rt_input_buffer_empty = request;
+    return true;
+}
+
+bool MotionService::RTFlushAppCmdBuffer(void)
+{
+    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
+    int iCounter = 1000;
+    do
+    {
+        AppCmdDataType msg;
+        result = MotServiceMemRead(&m_AppCmdData, &msg, NO_WAIT);;
+        iCounter--;
+    } while (result == MOT_SERVICE_READ_SUCCESS && iCounter > 0);
+
+    if (result != MOT_SERVICE_READ_SUCCESS)
+    {
+        RTSetInputBufferEmpty(true);
+        return true;
+    }
+    return false;
+}
+
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -345,19 +398,19 @@ MotionServiceDiagInfoType MotionService::ReadMotionServiceDiagInfo(void)
     return m_MotServiceDiagInfo;
 } // ReadMotionServiceDiagInfo
 
-/////////////////////////////////////////////////////////////////////
-// Name:
-// MotServiceMemWrite
-//
-// Function Description:
-//
-// Return value:
-// 
-///////////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////////
+  // Name:
+  // MotServiceMemWrite
+  //
+  // Function Description:
+  //
+  // Return value:
+  // 
+  ///////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemWrite(MotServiceMemType* pMem, void* pMsg, long lWaitTime)
 {
     MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
-    long  dwWaitingResult = 0, dwPrevious = 0, drPrevious = 0;
+    long  dwWaitingResult = 0, dwPrevious = 0;
     int    iOffset = 0;
 
     if (pMem == NULL || pMsg == NULL)
@@ -401,7 +454,7 @@ MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemWrite(MotServiceMemType* pMe
 MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemRead(MotServiceMemType* pMem, void* pMsg, long lWaitTime)
 {
     MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
-    long  dwWaitingResult = 0, dwPrevious = 0, drPrevious = 0;
+    long  dwWaitingResult = 0, dwPrevious = 0;
     int    iOffset = 0;
 
     if (pMem == NULL || pMsg == NULL)

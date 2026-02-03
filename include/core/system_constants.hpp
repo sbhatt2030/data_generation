@@ -46,8 +46,8 @@ namespace SystemConstants {
 
     namespace Machine {
         // Position limits [mm] - These should already include any safety margins you want
-        const Eigen::Vector3d WORKSPACE_MIN(-510, -290, -240);
-        const Eigen::Vector3d WORKSPACE_MAX(510, 290, 240);
+        const Eigen::Vector3d WORKSPACE_MIN(-500, -270, -220);
+        const Eigen::Vector3d WORKSPACE_MAX(500, 270, 220);
 
         // Motion limits [SI units: mm/s, mm/s², mm/s³] - These should already include any safety margins you want
         const Eigen::Vector3d MAX_VELOCITY(533.0, 533.0, 533.0);      // mm/s
@@ -90,7 +90,7 @@ namespace SystemConstants {
         constexpr double MAX_TRAJECTORY_TIME_S = 2.0;          // Maximum time per trajectory
         constexpr double INTER_TRAJECTORY_DWELL_S = 0.5;       // Dwell between trajectories
         constexpr double INITIAL_DWELL_S = 5.0;                // Initial program dwell
-        constexpr double LINEAR_PROBABILITY = 0.6;             // 60% linear moves in mixed mode
+        constexpr double LINEAR_PROBABILITY = 0.5;             // 60% linear moves in mixed mode
 
         // Rapid move settings
         constexpr double RAPID_FEEDRATE_MM_PER_MIN = 5000.0;   // Rapid positioning feedrate

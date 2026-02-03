@@ -32,7 +32,7 @@ struct GenerationParams {
 
     // Trajectory timing constraints
     double max_trajectory_time = 2.0;  // seconds
-    double dwell_time = 0.5;          // seconds (G4 P500 = 500ms) - between trajectories
+    double dwell_time = 0.05;          // seconds (G4 P500 = 500ms) - between trajectories
 
     // Probability distribution for mixed mode (0.0 to 1.0)
     double linear_probability = 0.5;  // 60% linear, 40% circular
@@ -150,37 +150,6 @@ private:
 
     PlaneDefinition getPlaneDefinition(const std::string& plane) const;
 
-    bool doesArcIntersect3DBoundary(const Eigen::Vector3d& center,
-        double radius,
-        double start_angle,
-        double arc_angle,
-        const PlaneDefinition& plane,
-        int boundaryAxis,
-        double boundaryValue,
-        bool isMinBoundary) const;
-
-    Eigen::Vector3d findBoundaryLineInArcPlane(const PlaneDefinition& plane,
-        int boundaryAxis) const;
-
-    double distanceFromCenterToBoundaryLine(const Eigen::Vector3d& center,
-        int boundaryAxis,
-        double boundaryValue,
-        const PlaneDefinition& plane) const;
-
-    std::vector<double> findCircleLineIntersectionAngles(
-        const Eigen::Vector3d& center,
-        double radius,
-        double distanceToLine,
-        const Eigen::Vector3d& lineDirection,
-        const PlaneDefinition& plane,
-        int boundaryAxis,
-        double boundaryValue) const;
-
-    double calculatePerpendicularAngleToBoundary(const Eigen::Vector3d& center,
-        int boundaryAxis,
-        double boundaryValue,
-        const PlaneDefinition& plane) const;
-
     bool isAngleInArcSweep(double testAngle, double startAngle, double sweepAngle) const;
     double normalizeAngle(double angle) const;
 
@@ -228,6 +197,18 @@ private:
         CircularDirection direction) const;
 
     CircularMove createFallbackArc(const GenerationParams& params) const;
+
+    bool validateAxisBoundary(const Eigen::Vector3d& center, double radius, double start_angle, double arc_angle, const PlaneDefinition& plane, int axis, double minBoundary, double maxBoundary) const;
+
+    bool validateInPlaneAxisBoundary(const Eigen::Vector3d& center, double radius, double start_angle, double arc_angle, const PlaneDefinition& plane, int axis, double minBoundary, double maxBoundary) const;
+
+    bool validateSingleBoundary(const Eigen::Vector3d& center, double radius, double start_angle, double arc_angle, const PlaneDefinition& plane, int axis, double boundaryValue, bool isMinBoundary) const;
+
+    std::vector<double> findBoundaryIntersectionAngles(const Eigen::Vector3d& center, double radius, int axis, double boundaryValue, const PlaneDefinition& plane) const;
+
+    Eigen::Vector3d getPointOnArc(const Eigen::Vector3d& center, double radius, double angle, const PlaneDefinition& plane) const;
+
+    Eigen::Vector3d calculateArcEndPoint(const Eigen::Vector3d& center, double radius, double start_angle, double arc_angle, const PlaneDefinition& plane) const;
 
 public:
     explicit GCodeGenerator(const MachineConstraints& constraints = MachineConstraints{},
