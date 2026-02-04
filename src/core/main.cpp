@@ -137,18 +137,18 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Step 1: Loading system configuration..." << std::endl;
         if (!overseer.loadSystemConfiguration(args.configFile)) {
-            std::cerr << "❌ Failed to load system configuration: " << overseer.getLastError() << std::endl;
+            std::cerr << " Failed to load system configuration: " << overseer.getLastError() << std::endl;
             return 1;
         }
-        std::cout << "✅ System configuration loaded successfully" << std::endl;
+        std::cout << "u System configuration loaded successfully" << std::endl;
 
         std::cout << "\nStep 2: Connecting to CNC machine..." << std::endl;
         if (!overseer.connectToCNC()) {
-            std::cerr << "❌ Failed to connect to CNC: " << overseer.getLastError() << std::endl;
+            std::cerr << " Failed to connect to CNC: " << overseer.getLastError() << std::endl;
             overseer.disconnectFromCNC();
             return 1;
         }
-        std::cout << "✅ CNC connection established" << std::endl;
+        std::cout << "u CNC connection established" << std::endl;
 
         std::cout << "\nStep 3: Starting experiment batch execution..." << std::endl;
         BatchResult result = overseer.runExperimentBatch(args.csvFile, args.outputDir);
@@ -157,11 +157,11 @@ int main(int argc, char* argv[]) {
         overseer.disconnectFromCNC();
 
         // Final results
-        std::cout << "\n🎯 BATCH EXECUTION COMPLETE!" << std::endl;
+        std::cout << "\n BATCH EXECUTION COMPLETE!" << std::endl;
         std::cout << "Success rate: " << result.successfulExperiments << "/" << result.totalExperiments;
 
         if (result.successfulExperiments == result.totalExperiments) {
-            std::cout << " (100% SUCCESS! 🎉)" << std::endl;
+            std::cout << " (100% SUCCESS! )" << std::endl;
             return 0;
         }
         else {
@@ -172,7 +172,7 @@ int main(int argc, char* argv[]) {
 
     }
     catch (const std::exception& e) {
-        std::cerr << "❌ Unexpected error: " << e.what() << std::endl;
+        std::cerr << " Unexpected error: " << e.what() << std::endl;
         return 1;
         system("pause");
     }

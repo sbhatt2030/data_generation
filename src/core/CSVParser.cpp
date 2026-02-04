@@ -6,6 +6,8 @@
 
 // Static member definition
 std::string CSVParser::lastError_;
+#include <filesystem>
+namespace fs = std::filesystem;
 
 std::vector<ExperimentConfig> CSVParser::parseCSV(const std::string& csvFilePath) {
     std::vector<ExperimentConfig> experiments;
@@ -67,9 +69,9 @@ std::vector<ExperimentConfig> CSVParser::parseCSV(const std::string& csvFilePath
 
 bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, ExperimentConfig& config) {
     try {
-        // Expect exactly 23 columns
-        if (row.size() != 23) {
-            setError("Row " + std::to_string(rowNumber) + ": Expected 23 columns, got " + std::to_string(row.size()));
+        // Expect exactly 26 columns
+        if (row.size() != 26) {
+            setError("Row " + std::to_string(rowNumber) + ": Expected 26 columns, got " + std::to_string(row.size()));
             return false;
         }
 
@@ -245,6 +247,9 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         case 3: config.vffConfig.vffType = VffType::NO_VFF;
                 config.vffConfig.useVffGenerator = false; 
                 break;
+		case 4: config.vffConfig.vffType = VffType::EXISTING_SEQUENCE; 
+			    config.vffConfig.useVffGenerator = false;
+                break;   
         default:
             setError("Row " + std::to_string(rowNumber) + ": Invalid vff_type: " + std::to_string(vffType));
             return false;
@@ -314,6 +319,9 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         // ================================================================
         // Set remaining defaults and validate
         // ================================================================
+        config.deviationSequenceDir = trim(row[23]);
+        config.vffSequenceDir = trim(row[24]);
+        config.GcodeFilePath = trim(row[25]);
 
         setConfigDefaults(config);
         return true;
@@ -361,6 +369,7 @@ TrajectoryType CSVParser::parseTrajectoryType(const std::string& str) {
     case 0: return TrajectoryType::LINEAR_ONLY;
     case 1: return TrajectoryType::CIRCULAR_ONLY;
     case 2: return TrajectoryType::MIXED;
+	case 3: return TrajectoryType::EXISTING;
     default:
         throw std::invalid_argument("Invalid trajectory_type: " + str);
     }
@@ -373,6 +382,7 @@ KinematicNoiseType CSVParser::parseNoiseType(const std::string& str) {
     case 1: return KinematicNoiseType::SUM_OF_SINUSOIDS;
     case 2: return KinematicNoiseType::SPARSE_INJECTION;
     case 3: return KinematicNoiseType::NO_NOISE;
+	case 4: return KinematicNoiseType::EXISTING_SEQUENCE;   
     default:
         throw std::invalid_argument("Invalid noise_type: " + str);
     }
@@ -385,6 +395,7 @@ VffType CSVParser::parseVffType(const std::string& str) {
     case 1: return VffType::SMOOTH_GAUSSIAN_DC_SHIFT;
     case 2: return VffType::SPARSE_VFF;
     case 3: return VffType::NO_VFF;
+	case 4: return VffType::EXISTING_SEQUENCE;
     default:
         throw std::invalid_argument("Invalid vff_type: " + str);
     }
@@ -454,7 +465,7 @@ void CSVParser::setConfigDefaults(ExperimentConfig& config) {
     config.gcodeParams.write_summary_to_file = true;
 
     // Other defaults
-    config.existingGcodeFile = "";
+    config.GcodeFilePath = "";
     config.enableDetailedLogging = false;
 }
 
@@ -541,6 +552,34 @@ bool CSVParser::validateConfig(const ExperimentConfig& config) {
                 return false;
             }
         }
+    }
+
+    // Validate external sequence paths
+    if (config.gcodeParams.trajectory_type == TrajectoryType::EXISTING && config.GcodeFilePath.empty()) {
+        setError("G-code file path must be specified for EXISTING trajectory type");
+        return false;
+    }
+    if (config.noiseType == KinematicNoiseType::EXISTING_SEQUENCE && config.deviationSequenceDir.empty()) {
+        setError("Deviation sequence directory must be specified for EXISTING_SEQUENCE noise type");
+        return false;
+    }
+    if (config.vffConfig.vffType == VffType::EXISTING_SEQUENCE && config.vffSequenceDir.empty()) {
+        setError("VFF sequence directory must be specified for EXISTING_SEQUENCE VFF type");
+        return false;
+    }
+
+    // Check if paths exist (requires #include <filesystem>)
+    if (!config.GcodeFilePath.empty() && !fs::exists(config.GcodeFilePath)) {
+        setError("G-code file does not exist: " + config.GcodeFilePath);
+        return false;
+    }
+    if (!config.deviationSequenceDir.empty() && !fs::exists(config.deviationSequenceDir)) {
+        setError("Deviation sequence directory does not exist: " + config.deviationSequenceDir);
+        return false;
+    }
+    if (!config.vffSequenceDir.empty() && !fs::exists(config.vffSequenceDir)) {
+        setError("VFF sequence directory does not exist: " + config.vffSequenceDir);
+        return false;
     }
 
     return true;

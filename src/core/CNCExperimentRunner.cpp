@@ -216,7 +216,7 @@ bool CNCExperimentRunner::initializePipelines(const ExperimentConfig& experiment
         generationPipeline_->setNoiseType(experimentConfig.noiseType);
         generationPipeline_->setVffConfig(experimentConfig.vffConfig);
 
-        if (!generationPipeline_->initialize(experimentConfig.existingGcodeFile, experimentConfig.gcodeParams)) {
+        if (!generationPipeline_->initialize(experimentConfig.GcodeFilePath, experimentConfig.gcodeParams)) {
             std::cerr << "ERROR: Failed to initialize Generation Pipeline" << std::endl;
             return false;
         }
@@ -710,7 +710,7 @@ bool CNCExperimentRunner::startExperimentLoop() {
         performFinalCleanup();
         lastResult_.success = true;
 
-        std::cout << "✅ Data collection completed!" << std::endl;
+        std::cout << "Data collection completed!" << std::endl;
         std::cout << "  Duration: " << std::fixed << std::setprecision(1)
             << lastResult_.executionTimeSeconds << "s" << std::endl;
         std::cout << "  Files written: " << lastResult_.csvFilesWritten << std::endl;

@@ -85,8 +85,9 @@ struct ExperimentConfig {
 
     // G-code generation parameters
     GenerationParams gcodeParams;
-    std::string existingGcodeFile;        // Optional: use existing file instead of generating
-
+    std::string GcodeFilePath;        // Optional: use existing file instead of generating
+    std::string deviationSequenceDir;
+	std::string vffSequenceDir;
     // Noise generation parameters
     KinematicNoiseGenerator::NoiseParams noiseParams;
     KinematicNoiseType noiseType = KinematicNoiseType::SMOOTH_GAUSSIAN_BANDPASS;

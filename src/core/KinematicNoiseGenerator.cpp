@@ -284,8 +284,8 @@ void KinematicNoiseGenerator::validateChunkConstraints(std::vector<InputDataPoin
         std::cout << "WARNING: " << violationCount << " constraint violations in chunk" << std::endl;
     }
 
-    std::cout << "Chunk validation: max=" << maxDeviation * 1000 << "μm, rms="
-        << rmsDeviation * 1000 << "μm" << std::endl;
+    std::cout << "Chunk validation: max=" << maxDeviation * 1000 << "um, rms="
+        << rmsDeviation * 1000 << "um" << std::endl;
 }
 
 // ============================================================================

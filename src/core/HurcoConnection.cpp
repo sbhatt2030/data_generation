@@ -56,7 +56,7 @@ bool HurcoConnection::startConnection() {
         return false;
     }
 
-    std::cout << "✅ Persistent CNC connection established" << std::endl;
+    std::cout << " Persistent CNC connection established" << std::endl;
     return true;
 }
 
@@ -99,7 +99,7 @@ bool HurcoConnection::loadAndRunProgram(const std::string& gcodeFilePath) {
     // Python wrapper automatically starts monitoring
     lastKnownStatus_ = 1; // Assume STARTED
 
-    std::cout << "✅ Load and run command sent" << std::endl;
+    std::cout << " Load and run command sent" << std::endl;
     return true;
 }
 
@@ -495,7 +495,7 @@ bool HurcoConnection::sendCommand(const std::string& command, const std::string&
 }
 
 void HurcoConnection::resetStatusForNewExperiment() {
-    std::cout << "🔄 Resetting CNC status for new experiment..." << std::endl;
+    std::cout << " Resetting CNC status for new experiment..." << std::endl;
 
 
     // Step 1: Tell Python wrapper to reset its status
@@ -521,14 +521,14 @@ void HurcoConnection::resetStatusForNewExperiment() {
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     ProgramStatus finalStatus = getCurrentProgramStatus();
-    std::cout << "✅ Status reset complete. Current status: "
+    std::cout << " Status reset complete. Current status: "
         << programStatusToString(finalStatus) << std::endl;
 
     // If status is still a completion status, warn about potential issue
     if (finalStatus == ProgramStatus::COMPLETED_SUCCESSFUL ||
         finalStatus == ProgramStatus::COMPLETED_ERROR ||
         finalStatus == ProgramStatus::COMPLETED_ABORT) {
-        std::cout << "⚠️  WARNING: Status still shows completion after reset. "
+        std::cout << "WARNING: Status still shows completion after reset. "
             << "CNC may need manual intervention." << std::endl;
     }
 }

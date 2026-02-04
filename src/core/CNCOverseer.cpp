@@ -132,11 +132,11 @@ BatchResult CNCOverseer::runExperimentBatch(const std::string& csvFilePath, cons
         updateBatchStatistics(config.experimentId, success);
 
         if (!success) {
-            std::cout << "❌ Experiment " << config.experimentId << " FAILED: " << lastError_ << std::endl;
+            std::cout << " Experiment " << config.experimentId << " FAILED: " << lastError_ << std::endl;
             logExperimentFailure(config.experimentId, lastError_);
         }
         else {
-            std::cout << "✅ Experiment " << config.experimentId << " COMPLETED SUCCESSFULLY" << std::endl;
+            std::cout << " Experiment " << config.experimentId << " COMPLETED SUCCESSFULLY" << std::endl;
         }
     }
 
@@ -320,8 +320,8 @@ void CNCOverseer::printBatchSummary() {
     std::cout << "BATCH EXECUTION SUMMARY" << std::endl;
     std::cout << std::string(80, '=') << std::endl;
     std::cout << "Total experiments: " << batchResult_.totalExperiments << std::endl;
-    std::cout << "Successful: " << batchResult_.successfulExperiments << " ✅" << std::endl;
-    std::cout << "Failed: " << batchResult_.failedExperiments << " ❌" << std::endl;
+    std::cout << "Successful: " << batchResult_.successfulExperiments << " " << std::endl;
+    std::cout << "Failed: " << batchResult_.failedExperiments << " " << std::endl;
     std::cout << "Success rate: " << std::fixed << std::setprecision(1)
         << (100.0 * batchResult_.successfulExperiments / batchResult_.totalExperiments) << "%" << std::endl;
     std::cout << "Total execution time: " << std::fixed << std::setprecision(1)

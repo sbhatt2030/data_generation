@@ -45,10 +45,10 @@ int main() {
 
         // Generate the file
         if (generator.generateGCodeFile(filename, params)) {
-            std::cout << "✅ Generated: " << filename << std::endl;
+            std::cout << " Generated: " << filename << std::endl;
         }
         else {
-            std::cout << "❌ Failed to generate: " << filename << std::endl;
+            std::cout << " Failed to generate: " << filename << std::endl;
         }
     }
 

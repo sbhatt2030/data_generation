@@ -11,7 +11,8 @@ enum class VffType {
     SMOOTH_GAUSSIAN = 0,
     SMOOTH_GAUSSIAN_DC_SHIFT = 1,
     SPARSE_VFF = 2,
-    NO_VFF = 3
+    NO_VFF = 3,
+	EXISTING_SEQUENCE = 4
 };
 
 class VffGenerator {

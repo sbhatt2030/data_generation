@@ -9,7 +9,8 @@
 enum class TrajectoryType {
     LINEAR_ONLY,
     CIRCULAR_ONLY,
-    MIXED
+    MIXED,
+	EXISTING
 };
 
 enum class CircularDirection {

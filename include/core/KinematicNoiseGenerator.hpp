@@ -10,7 +10,8 @@ enum class KinematicNoiseType {
     SMOOTH_GAUSSIAN_BANDPASS = 0,
     SUM_OF_SINUSOIDS = 1,
     SPARSE_INJECTION = 2,
-    NO_NOISE = 3
+    NO_NOISE = 3,
+	EXISTING_SEQUENCE = 4
 };
 
 class KinematicNoiseGenerator {
