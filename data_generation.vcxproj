@@ -61,7 +61,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>UNDER_WIN32;Py_NO_DEBUG;Py_NO_WARNINGS;NDEBUG;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;UNDER_WIN32;Py_NO_DEBUG;Py_NO_WARNINGS;NDEBUG;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)lib;C:\repos\Packagesl\RTX\RTX64\V4\include;$(ProjectDir);$(ProjectDir)include;C:\repos\Packages\RTServices</AdditionalIncludeDirectories>
@@ -79,7 +79,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>UNDER_WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;UNDER_WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)lib;C:\repos\Packages\virtual\RTX\RTX64\V4\include;$(ProjectDir);$(ProjectDir)include;C:\repos\Packages\virtual\CNCEngine\RTServices</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -97,7 +97,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>UNDER_RTX;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;UNDER_RTX;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)lib;C:\repos\Packages\RTX\RTX64\V4\include;$(ProjectDir);$(ProjectDir)include;C:\repos\Packages\RTServices</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -120,6 +120,7 @@
     </ClCompile>
     <ClCompile Include="src\core\CNCExperimentRunner.cpp" />
     <ClCompile Include="src\core\CNCOverseer.cpp" />
+    <ClCompile Include="src\core\cnpy.cpp" />
     <ClCompile Include="src\core\CSVParser.cpp" />
     <ClCompile Include="src\core\ExtractionPipeline.cpp" />
     <ClCompile Include="src\core\gcode_generator.cpp" />
@@ -137,6 +138,7 @@
   <ItemGroup>
     <ClInclude Include="include\core\CNCExperimentRunner.hpp" />
     <ClInclude Include="include\core\CNCOverseer.hpp" />
+    <ClInclude Include="include\core\cnpy.h" />
     <ClInclude Include="include\core\CSVParser.hpp" />
     <ClInclude Include="include\core\ExtractionPipeline.hpp" />
     <ClInclude Include="include\core\gcode_generator.hpp" />

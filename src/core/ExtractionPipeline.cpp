@@ -69,7 +69,7 @@ bool ExtractionPipeline::initialize(MotionService* motionService,
                 std::ofstream spikeLog(spikeLogPath_, std::ios::app);
                 if (spikeLog.is_open()) {
                     spikeLog << "# Position Spike Log - Threshold: 1.0mm\n";
-                    spikeLog << "# Format: Timestamp - SPIKE #N: ΔX=Xmm, ΔY=Ymm, ΔZ=Zmm (Line: N, Experiment: ID)\n";
+                    spikeLog << "# Format: Timestamp - SPIKE #N: delta X=Xmm, delta Y=Ymm, delta Z=Zmm (Line: N, Experiment: ID)\n";
                     spikeLog << "# Session: " << sessionFolder << "\n";
                     spikeLog << "# Started: " << getCurrentTimestamp() << "\n";
                     spikeLog << "#" << std::string(80, '=') << "\n";
@@ -213,8 +213,8 @@ bool ExtractionPipeline::readSinglePoint(ExtractedDataPoint& point) {
             double deltaZ = std::abs(rtData.dPosition[Z_AXIS] - prevPosZ_);
 
             if (deltaX > 1.0 || deltaY > 1.0 || deltaZ > 1.0) {
-                std::cout << "SPIKE AT SMR READ: ΔX=" << deltaX
-                    << " ΔY=" << deltaY << " ΔZ=" << deltaZ
+                std::cout << "SPIKE AT SMR READ: delta X=" << deltaX
+                    << " delta Y=" << deltaY << " delta Z=" << deltaZ
                     << " line=" << rtData.iCurrentLineNumber << std::endl;
 
                 // Log raw SMR data
@@ -414,15 +414,15 @@ void ExtractionPipeline::logPositionSpike(double deltaX, double deltaY, double d
     // Create spike message
     std::ostringstream spikeMsg;
     spikeMsg << "POSITION SPIKE #" << positionSpikeCount_ << ": "
-        << "ΔX=" << std::fixed << std::setprecision(3) << deltaX << "mm, "
-        << "ΔY=" << deltaY << "mm, "
-        << "ΔZ=" << deltaZ << "mm "
+        << "delta X=" << std::fixed << std::setprecision(3) << deltaX << "mm, "
+        << "delta Y=" << deltaY << "mm, "
+        << "delta Z=" << deltaZ << "mm "
         << "(Line: " << lineNumber << ")";
 
     std::string timestamp = getCurrentTimestamp();
 
     // Log to console with warning symbol
-    std::cout << "⚠️ [" << timestamp << "] " << spikeMsg.str() << std::endl;
+    std::cout << "[" << timestamp << "] " << spikeMsg.str() << std::endl;
 
     // Log to file if spike logging is enabled
     if (!spikeLogPath_.empty()) {
