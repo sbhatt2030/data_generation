@@ -133,6 +133,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="src\core\MotionService.cpp" />
+    <ClCompile Include="src\core\SequenceLoader.cpp" />
     <ClCompile Include="src\core\VffGenerator.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -150,6 +151,7 @@
     <ClInclude Include="include\core\MotionService.h" />
     <ClInclude Include="include\core\motion_config.hpp" />
     <ClInclude Include="include\core\NonConsumingBufferMonitor.hpp" />
+    <ClInclude Include="include\core\SequenceLoader.hpp" />
     <ClInclude Include="include\core\system_constants.hpp" />
     <ClInclude Include="include\core\trajectory_types.hpp" />
     <ClInclude Include="include\core\VffGenerator.hpp" />

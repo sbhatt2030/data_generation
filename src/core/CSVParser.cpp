@@ -247,9 +247,7 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         case 3: config.vffConfig.vffType = VffType::NO_VFF;
                 config.vffConfig.useVffGenerator = false; 
                 break;
-		case 4: config.vffConfig.vffType = VffType::EXISTING_SEQUENCE; 
-			    config.vffConfig.useVffGenerator = false;
-                break;   
+		case 4: config.vffConfig.vffType = VffType::EXISTING_SEQUENCE; break;   
         default:
             setError("Row " + std::to_string(rowNumber) + ": Invalid vff_type: " + std::to_string(vffType));
             return false;
