@@ -102,6 +102,7 @@ InputDataPoint KinematicNoiseGenerator::generateSingleNoiseSample(
         noiseValue = generateSparseInjectionSample(sampleIndex, dt, params);
         break;
     case KinematicNoiseType::NO_NOISE:
+    case KinematicNoiseType::EXISTING_SEQUENCE:
     default:
         //noiseValue = generateTestPatternSample(sampleIndex, dt, params);
         noiseValue.setZero();
@@ -310,6 +311,7 @@ TrajectoryKinematics KinematicNoiseGenerator::addKinematicNoise(
         result = addSparseInjection(original, params);
         break;
     case KinematicNoiseType::NO_NOISE:
+    case KinematicNoiseType::EXISTING_SEQUENCE:
     default:
         result = original;
         break;

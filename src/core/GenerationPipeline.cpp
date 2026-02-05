@@ -344,6 +344,7 @@ void GenerationPipeline::initializeGenerators() {
                     << vffLoader_->getLastError() << std::endl;
                 vffLoader_.reset();  // Fall back to no VFF
                 vffConfig_.useVffGenerator = false;
+				vffConfig_.vffType = VffType::NO_VFF;
                 std::cout << "Falling back to no VFF" << std::endl;
             }
             else {

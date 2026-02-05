@@ -47,8 +47,8 @@ std::array<std::vector<double>, 3> VffGenerator::generateVffChunk(
         result = generateSparseVff(chunkSize, params, dt);
         break;
     case VffType::NO_VFF:
+    case VffType::EXISTING_SEQUENCE:
     default:
-
         /*result = generateVffTestPattern(chunkSize, params, dt);*/
         // Return zero-filled vectors
         for (int axis = 0; axis < 3; ++axis) {
