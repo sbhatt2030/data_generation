@@ -216,6 +216,10 @@ bool CNCExperimentRunner::initializePipelines(const ExperimentConfig& experiment
         generationPipeline_->setNoiseType(experimentConfig.noiseType);
         generationPipeline_->setVffConfig(experimentConfig.vffConfig);
 
+        generationPipeline_->setDeviationSequenceDir(experimentConfig.deviationSequenceDir);
+        generationPipeline_->setVffSequenceDir(experimentConfig.vffSequenceDir);
+
+
         if (!generationPipeline_->initialize(experimentConfig.GcodeFilePath, experimentConfig.gcodeParams)) {
             std::cerr << "ERROR: Failed to initialize Generation Pipeline" << std::endl;
             return false;
@@ -668,6 +672,23 @@ bool CNCExperimentRunner::initializeExperiment(const ExperimentConfig& experimen
     // Resolve and log seed configuration
     SeedConfiguration resolvedSeeds = resolveSeeds(experimentConfig.seedConfig);
     logSeedConfiguration(resolvedSeeds);
+
+    std::cout << "\n=== Data Sources ===" << std::endl;
+    std::cout << "G-code: " << (experimentConfig.GcodeFilePath.empty() ? "Generated" : "Existing") << std::endl;
+    if (!experimentConfig.GcodeFilePath.empty()) {
+        std::cout << "  Path: " << experimentConfig.GcodeFilePath << std::endl;
+    }
+
+    std::cout << "Deviations: " << (experimentConfig.noiseType == KinematicNoiseType::EXISTING_SEQUENCE ? "External" : "Generated") << std::endl;
+    if (experimentConfig.noiseType == KinematicNoiseType::EXISTING_SEQUENCE) {
+        std::cout << "  Directory: " << experimentConfig.deviationSequenceDir << std::endl;
+    }
+
+    std::cout << "VFF: " << (experimentConfig.vffConfig.vffType == VffType::EXISTING_SEQUENCE ? "External" : "Generated") << std::endl;
+    if (experimentConfig.vffConfig.vffType == VffType::EXISTING_SEQUENCE) {
+        std::cout << "  Directory: " << experimentConfig.vffSequenceDir << std::endl;
+    }
+    std::cout << "====================" << std::endl;
 
     try {
 

@@ -1,7 +1,8 @@
-#pragma once
+﻿#pragma once
 
 #include "core/KinematicNoiseGenerator.hpp"
 #include "core/VffGenerator.hpp"
+#include "core/SequenceLoader.hpp"  
 #include "core/gcode_generator.hpp"
 #include "core/motion_config.hpp"
 #include "core/trajectory_types.hpp"
@@ -113,6 +114,9 @@ public:
     void setMotionConfig(const MotionConfig& config);
     void setNoiseType(KinematicNoiseType type);
 
+    void setDeviationSequenceDir(const std::string& dir) { deviationSequenceDir_ = dir; }
+    void setVffSequenceDir(const std::string& dir) { vffSequenceDir_ = dir; }
+
     // Status getters
     const std::string& getSessionFolder() const { return uniqueSessionFolder_; }
     const std::string& getGCodeFilePath() const { return gcodeFilePath_; }
@@ -129,12 +133,18 @@ private:
     std::unique_ptr<KinematicNoiseGenerator> noiseGenerator_;
     std::unique_ptr<VffGenerator> vffGenerator_;
 
+    std::unique_ptr<SequenceLoader> deviationLoader_;  // ← ADD
+    std::unique_ptr<SequenceLoader> vffLoader_;        // ← ADD
+
     // Configuration
     KinematicNoiseGenerator::NoiseParams noiseParams_;
     MachineConstraints machineConstraints_;
     MotionConfig motionConfig_;
     KinematicNoiseType noiseType_;
     VffConfig vffConfig_;
+
+    std::string deviationSequenceDir_;  // ← ADD
+    std::string vffSequenceDir_;        // ← ADD
 
     // Continuous generation state
     int continuousChunkCounter_ = 0;

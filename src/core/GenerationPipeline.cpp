@@ -1,5 +1,6 @@
-#include "core/GenerationPipeline.hpp"
+ï»¿#include "core/GenerationPipeline.hpp"
 #include "core/VffGenerator.hpp"
+#include "core/SequenceLoader.hpp" 
 #include "core/input_data_point.hpp"
 #include <filesystem>
 #include <fstream>
@@ -113,33 +114,105 @@ std::vector<InputDataPoint> GenerationPipeline::generateNextCommandData() {
 
 std::vector<InputDataPoint> GenerationPipeline::generateContinuousNoiseChunk() {
     try {
-        std::cout << "Generating continuous noise chunk " << continuousChunkCounter_
-            << " (type: " << static_cast<int>(noiseType_) << ")" << std::endl;
+        std::vector<InputDataPoint> chunk;
+        chunk.reserve(TrajectoryKinematics::FIXED_LENGTH);
 
-        // Generate noise chunk using enhanced noise generator
-        std::vector<InputDataPoint> noiseChunk = noiseGenerator_->generateNoiseChunk(
-            TrajectoryKinematics::FIXED_LENGTH,  // 8000 points
-            noiseParams_,
-            motionConfig_.getTimeStep(),         // 0.00025s (4kHz)
-            continuousChunkCounter_              // Line number for organization
-        );
+        // === STEP 1: Get deviation data (generator OR loader) ===
+        std::vector<Eigen::Vector3d> deviations;
 
-        // Add VFF data if enabled
-        if (vffConfig_.useVffGenerator && vffGenerator_) {
-            addVFFToChunk(noiseChunk);
+        if (deviationLoader_) {
+            // Load from external sequence
+            deviations = deviationLoader_->loadNextChunk();
+
+            if (deviations.empty() && deviationLoader_->hasMoreData()) {
+                std::cerr << "WARNING: Deviation loader returned empty chunk but has more data" << std::endl;
+            }
+
+            std::cout << "Loaded " << deviations.size() << " deviation samples from file" << std::endl;
+        }
+        else if (noiseGenerator_) {
+            // Generate using noise generator
+            std::vector<InputDataPoint> generatedChunk = noiseGenerator_->generateNoiseChunk(
+                TrajectoryKinematics::FIXED_LENGTH,
+                noiseParams_,
+                motionConfig_.getTimeStep(),
+                continuousChunkCounter_
+            );
+
+            // Convert to Eigen format for consistent processing
+            deviations.reserve(generatedChunk.size());
+            for (const auto& point : generatedChunk) {
+                deviations.emplace_back(point.dev_x, point.dev_y, point.dev_z);
+            }
+        }
+
+        // === STEP 2: Safety clamp deviations to Â±0.5mm ===
+        constexpr double MAX_DEVIATION = 0.5;  // mm
+        for (auto& dev : deviations) {
+            dev.x() = std::clamp(dev.x(), -MAX_DEVIATION, MAX_DEVIATION);
+            dev.y() = std::clamp(dev.y(), -MAX_DEVIATION, MAX_DEVIATION);
+            dev.z() = std::clamp(dev.z(), -MAX_DEVIATION, MAX_DEVIATION);
+        }
+
+        // === STEP 3: Pad or truncate to exactly 8000 samples ===
+        if (deviations.size() < TrajectoryKinematics::FIXED_LENGTH) {
+            // Pad with zeros if file had fewer samples
+            size_t originalSize = deviations.size();
+            deviations.resize(TrajectoryKinematics::FIXED_LENGTH, Eigen::Vector3d::Zero());
+            std::cout << "Padded chunk from " << originalSize << " to "
+                << TrajectoryKinematics::FIXED_LENGTH << " samples (zeros)" << std::endl;
+        }
+        else if (deviations.size() > TrajectoryKinematics::FIXED_LENGTH) {
+            // Truncate if somehow got more
+            deviations.resize(TrajectoryKinematics::FIXED_LENGTH);
+        }
+
+        // === STEP 4: Convert to InputDataPoint format ===
+        for (size_t i = 0; i < deviations.size(); ++i) {
+            InputDataPoint point;
+            point.dev_x = deviations[i].x();
+            point.dev_y = deviations[i].y();
+            point.dev_z = deviations[i].z();
+            point.line_number = continuousChunkCounter_;
+            chunk.push_back(point);
+        }
+
+        // === STEP 5: Add VFF data (generator OR loader) ===
+        if (vffLoader_) {
+            // Load VFF from external sequence
+            auto vffData = vffLoader_->loadNextChunk();
+
+            if (!vffData.empty()) {
+                // Safety clamp VFF (less critical than deviations)
+                constexpr double MAX_VFF = 50.0;  // mm/s
+                for (auto& vff : vffData) {
+                    vff.x() = std::clamp(vff.x(), -MAX_VFF, MAX_VFF);
+                    vff.y() = std::clamp(vff.y(), -MAX_VFF, MAX_VFF);
+                    vff.z() = std::clamp(vff.z(), -MAX_VFF, MAX_VFF);
+                }
+
+                // Apply to chunk (pad with zeros if sizes don't match)
+                for (size_t i = 0; i < chunk.size() && i < vffData.size(); ++i) {
+                    chunk[i].vff_x = vffData[i].x();
+                    chunk[i].vff_y = vffData[i].y();
+                    chunk[i].vff_z = vffData[i].z();
+                }
+
+                std::cout << "Applied " << vffData.size() << " VFF samples from file" << std::endl;
+            }
+        }
+        else if (vffConfig_.useVffGenerator && vffGenerator_) {
+            // Generate VFF
+            addVFFToChunk(chunk);
         }
 
         continuousChunkCounter_++;
-
-        std::cout << "Generated continuous noise chunk: " << noiseChunk.size()
-            << " points, line " << (continuousChunkCounter_ - 1) << std::endl;
-
-        return noiseChunk;
+        return chunk;
 
     }
     catch (const std::exception& e) {
-        std::cerr << "ERROR: Exception generating continuous noise chunk: " << e.what() << std::endl;
-        return {}; // Return empty vector on error
+        std::cerr << "ERROR: Exception generating chunk: " << e.what() << std::endl;
+        return {};
     }
 }
 
@@ -228,20 +301,66 @@ void GenerationPipeline::setNoiseType(KinematicNoiseType type) {
 
 
 void GenerationPipeline::initializeGenerators() {
-    std::cout << "Initializing generators with resolved seeds:" << std::endl;
+    std::cout << "Initializing data generators/loaders..." << std::endl;
 
-    noiseGenerator_ = std::make_unique<KinematicNoiseGenerator>(
-        machineConstraints_, motionConfig_, noiseGeneratorSeed_);
-    std::cout << "  Noise Generator initialized with seed: " << noiseGeneratorSeed_ << std::endl;
+    // === DEVIATION/NOISE INITIALIZATION ===
+    if (noiseType_ == KinematicNoiseType::EXISTING_SEQUENCE) {
+        // Use external deviation loader
+        if (!deviationSequenceDir_.empty()) {
+            deviationLoader_ = std::make_unique<SequenceLoader>(deviationSequenceDir_);
 
-    noiseGenerator_->setNoiseType(noiseType_);
+            if (!deviationLoader_->initialize()) {
+                std::cerr << "ERROR: Failed to initialize deviation loader: "
+                    << deviationLoader_->getLastError() << std::endl;
+                deviationLoader_.reset();  // Fall back to generator
+                std::cout << "Falling back to noise generator" << std::endl;
 
-    if (vffConfig_.useVffGenerator) {
-        vffGenerator_ = std::make_unique<VffGenerator>(vffGeneratorSeed_);
-        std::cout << "VFF Generator initialized with seed: " << vffGeneratorSeed_ << std::endl;
+                noiseGenerator_ = std::make_unique<KinematicNoiseGenerator>(
+                    machineConstraints_, motionConfig_, noiseGeneratorSeed_);
+                noiseGenerator_->setNoiseType(KinematicNoiseType::NO_NOISE);
+            }
+            else {
+                std::cout << "Deviation loader initialized: "
+                    << deviationLoader_->getFileCount() << " files" << std::endl;
+            }
+        }
+    }
+    else {
+        // Use noise generator
+        noiseGenerator_ = std::make_unique<KinematicNoiseGenerator>(
+            machineConstraints_, motionConfig_, noiseGeneratorSeed_);
+        noiseGenerator_->setNoiseType(noiseType_);
+        std::cout << "Noise generator initialized with seed: " << noiseGeneratorSeed_ << std::endl;
     }
 
-    std::cout << "Noise generators initialized successfully" << std::endl;
+    // === VFF INITIALIZATION ===
+    if (vffConfig_.vffType == VffType::EXISTING_SEQUENCE) {
+        // Use external VFF loader
+        if (!vffSequenceDir_.empty()) {
+            vffLoader_ = std::make_unique<SequenceLoader>(vffSequenceDir_);
+
+            if (!vffLoader_->initialize()) {
+                std::cerr << "ERROR: Failed to initialize VFF loader: "
+                    << vffLoader_->getLastError() << std::endl;
+                vffLoader_.reset();  // Fall back to no VFF
+                vffConfig_.useVffGenerator = false;
+                std::cout << "Falling back to no VFF" << std::endl;
+            }
+            else {
+                std::cout << "VFF loader initialized: "
+                    << vffLoader_->getFileCount() << " files" << std::endl;
+            }
+        }
+    }
+    else if (vffConfig_.useVffGenerator &&
+        vffConfig_.vffType != VffType::NO_VFF &&
+        vffConfig_.vffType != VffType::EXISTING_SEQUENCE) {
+        // Use VFF generator
+        vffGenerator_ = std::make_unique<VffGenerator>(vffGeneratorSeed_);
+        std::cout << "VFF generator initialized with seed: " << vffGeneratorSeed_ << std::endl;
+    }
+
+    std::cout << "Data sources initialized successfully" << std::endl;
 }
 
 bool GenerationPipeline::createUniqueSessionFolder() {
@@ -414,15 +533,15 @@ void GenerationPipeline::saveMachineConfigToFile() const {
         configFile << "  Z: [" << machineConstraints_.min_position.z() << ", " << machineConstraints_.max_position.z() << "]" << std::endl;
 
         configFile << "Velocity Limits (mm/s): [" << machineConstraints_.max_velocity.transpose() << "]" << std::endl;
-        configFile << "Acceleration Limits (mm/s²): [" << machineConstraints_.max_acceleration.transpose() << "]" << std::endl;
-        configFile << "Jerk Limits (mm/s³): [" << machineConstraints_.max_jerk.transpose() << "]" << std::endl;
+        configFile << "Acceleration Limits (mm/sÂ²): [" << machineConstraints_.max_acceleration.transpose() << "]" << std::endl;
+        configFile << "Jerk Limits (mm/sÂ³): [" << machineConstraints_.max_jerk.transpose() << "]" << std::endl;
         configFile << "Max Feedrate: " << machineConstraints_.max_feedrate << " mm/min" << std::endl;
         configFile << "Safety Margin: " << machineConstraints_.safety_margin << std::endl;
 
         configFile << "\nMotion Config:" << std::endl;
         configFile << "Controller Frequency: " << motionConfig_.controllerFrequency << " Hz" << std::endl;
-        configFile << "Max Jerk: " << motionConfig_.maxJerk << " mm/s³" << std::endl;
-        configFile << "Max Acceleration: " << motionConfig_.maxAcceleration << " mm/s²" << std::endl;
+        configFile << "Max Jerk: " << motionConfig_.maxJerk << " mm/sÂ³" << std::endl;
+        configFile << "Max Acceleration: " << motionConfig_.maxAcceleration << " mm/sÂ²" << std::endl;
         configFile << "Max Velocity: " << motionConfig_.maxVelocity << " mm/s" << std::endl;
 
         configFile.close();

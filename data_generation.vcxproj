@@ -118,6 +118,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Machine_Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="test_sequence_loader.cpp" />
     <ClCompile Include="src\core\CNCExperimentRunner.cpp" />
     <ClCompile Include="src\core\CNCOverseer.cpp" />
     <ClCompile Include="src\core\cnpy.cpp" />
@@ -130,7 +131,7 @@
     <ClCompile Include="src\core\KinematicNoiseGenerator.cpp" />
     <ClCompile Include="src\core\main.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Machine_Release|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="src\core\MotionService.cpp" />
     <ClCompile Include="src\core\SequenceLoader.cpp" />
