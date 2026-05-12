@@ -147,7 +147,8 @@ public:
     ~CNCExperimentRunner();
 
     /**
-     * Load system configuration from JSON file
+     * Load system configuration from 
+     file
      * Called once at startup, before running experiments
      * @param configFile Path to system configuration JSON file
      * @return true if configuration loaded successfully

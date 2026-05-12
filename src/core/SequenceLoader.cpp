@@ -10,7 +10,8 @@ namespace fs = std::filesystem;
 
 SequenceLoader::SequenceLoader(const std::string& directoryPath)
     : directoryPath_(directoryPath)
-    , currentFileIndex_(0) {
+    , readCursor_(0)
+    , filesLoaded_(0) {
 }
 
 bool SequenceLoader::initialize() {
@@ -18,38 +19,32 @@ bool SequenceLoader::initialize() {
         setError("Directory path is empty");
         return false;
     }
-
     if (!fs::exists(directoryPath_)) {
         setError("Directory does not exist: " + directoryPath_);
         return false;
     }
-
     if (!fs::is_directory(directoryPath_)) {
         setError("Path is not a directory: " + directoryPath_);
         return false;
     }
-
-    return scanDirectory();
+    return scanAndLoad();
 }
 
-bool SequenceLoader::scanDirectory() {
-    fileList_.clear();
+bool SequenceLoader::scanAndLoad() {
+    buffer_.clear();
+    readCursor_ = 0;
+    filesLoaded_ = 0;
 
-    // Regex to match numbered .npy files (0.npy, 1.npy, etc.)
     std::regex npyPattern(R"((\d+)\.npy)");
-
     std::vector<std::pair<int, std::string>> numberedFiles;
 
     try {
         for (const auto& entry : fs::directory_iterator(directoryPath_)) {
             if (!entry.is_regular_file()) continue;
-
             std::string filename = entry.path().filename().string();
             std::smatch match;
-
             if (std::regex_match(filename, match, npyPattern)) {
-                int fileNumber = std::stoi(match[1].str());
-                numberedFiles.push_back({ fileNumber, entry.path().string() });
+                numberedFiles.push_back({ std::stoi(match[1].str()), entry.path().string() });
             }
         }
     }
@@ -63,43 +58,68 @@ bool SequenceLoader::scanDirectory() {
         return false;
     }
 
-    // Sort by file number
     std::sort(numberedFiles.begin(), numberedFiles.end(),
         [](const auto& a, const auto& b) { return a.first < b.first; });
 
-    // Extract file paths in sorted order
     for (const auto& [number, path] : numberedFiles) {
-        fileList_.push_back(path);
+        size_t currentBytes = buffer_.size() * sizeof(Eigen::Vector3d);
+        if (currentBytes >= MAX_BUFFER_BYTES) {
+            std::cout << "SequenceLoader: 200MB cap reached, stopping at file "
+                << number << " (" << filesLoaded_ << " files loaded)" << std::endl;
+            break;
+        }
+
+        std::vector<Eigen::Vector3d> fileData;
+        if (!loadNpyFile(path, fileData)) {
+            std::cerr << "WARNING: Skipping " << fs::path(path).filename().string()
+                << ": " << lastError_ << std::endl;
+            continue;
+        }
+
+        buffer_.insert(buffer_.end(), fileData.begin(), fileData.end());
+        filesLoaded_++;
     }
 
-    std::cout << "SequenceLoader: Found " << fileList_.size()
-        << " .npy files in " << directoryPath_ << std::endl;
+    if (buffer_.empty()) {
+        setError("No valid data loaded from directory: " + directoryPath_);
+        return false;
+    }
 
-    currentFileIndex_ = 0;
+    std::cout << "SequenceLoader: Loaded " << filesLoaded_ << " files, "
+        << buffer_.size() << " samples ("
+        << (buffer_.size() * sizeof(Eigen::Vector3d)) / (1024 * 1024)
+        << " MB) into RAM" << std::endl;
+
     return true;
 }
 
 std::vector<Eigen::Vector3d> SequenceLoader::loadNextChunk() {
-    std::vector<Eigen::Vector3d> chunk;
-
-    if (currentFileIndex_ >= fileList_.size()) {
-        return chunk; // Empty - no more files
+    if (readCursor_ >= buffer_.size()) {
+        return {};
     }
 
-    const std::string& filepath = fileList_[currentFileIndex_];
+    size_t remaining = buffer_.size() - readCursor_;
+    size_t chunkSize = std::min(remaining, CHUNK_SIZE);
 
-    if (!loadNpyFile(filepath, chunk)) {
-        std::cerr << "ERROR: Failed to load " << filepath << ": " << lastError_ << std::endl;
-        currentFileIndex_++; // Skip failed file
-        return {}; // Return empty on error
-    }
+    std::vector<Eigen::Vector3d> chunk(
+        buffer_.begin() + readCursor_,
+        buffer_.begin() + readCursor_ + chunkSize);
 
-    currentFileIndex_++;
+    readCursor_ += chunkSize;
 
-    std::cout << "Loaded chunk from " << fs::path(filepath).filename().string()
-        << ": " << chunk.size() << " samples" << std::endl;
+    std::cout << "SequenceLoader: Served chunk of " << chunkSize
+        << " samples (cursor " << readCursor_ << "/" << buffer_.size() << ")" << std::endl;
 
     return chunk;
+}
+
+bool SequenceLoader::hasMoreData() const {
+    return readCursor_ < buffer_.size();
+}
+
+void SequenceLoader::reset() {
+    readCursor_ = 0;
+    std::cout << "SequenceLoader: Reset cursor to beginning" << std::endl;
 }
 
 bool SequenceLoader::loadNpyFile(const std::string& filepath,
@@ -107,10 +127,8 @@ bool SequenceLoader::loadNpyFile(const std::string& filepath,
     outData.clear();
 
     try {
-        // Load .npy file
         cnpy::NpyArray arr = cnpy::npy_load(filepath);
 
-        // Validate shape
         if (arr.shape.size() != 2) {
             setError("Expected 2D array, got " + std::to_string(arr.shape.size()) + "D");
             return false;
@@ -124,30 +142,21 @@ bool SequenceLoader::loadNpyFile(const std::string& filepath,
             return false;
         }
 
-        if (rows > 8000) {
-            setError("Too many rows: " + std::to_string(rows) + " (max 8000)");
-            return false;
-        }
-
         if (rows == 0) {
             setError("File contains no data");
             return false;
         }
 
-        // Convert to Eigen vectors
         double* data = arr.data<double>();
         outData.reserve(rows);
 
         for (size_t i = 0; i < rows; ++i) {
-            Eigen::Vector3d sample(
-                data[i * 3 + 0],  // x
-                data[i * 3 + 1],  // y
-                data[i * 3 + 2]   // z
-            );
-            outData.push_back(sample);
+            outData.emplace_back(
+                data[i * 3 + 0],
+                data[i * 3 + 1],
+                data[i * 3 + 2]);
         }
 
-        // Validate data
         if (!validateData(outData)) {
             outData.clear();
             return false;
@@ -162,30 +171,15 @@ bool SequenceLoader::loadNpyFile(const std::string& filepath,
 }
 
 bool SequenceLoader::validateData(const std::vector<Eigen::Vector3d>& data) {
-    // Check for NaN or Inf values
     for (size_t i = 0; i < data.size(); ++i) {
-        const auto& sample = data[i];
-
-        if (!std::isfinite(sample.x()) ||
-            !std::isfinite(sample.y()) ||
-            !std::isfinite(sample.z())) {
-
-            setError("Invalid data at sample " + std::to_string(i) +
-                ": contains NaN or Inf");
+        if (!std::isfinite(data[i].x()) ||
+            !std::isfinite(data[i].y()) ||
+            !std::isfinite(data[i].z())) {
+            setError("Invalid data at sample " + std::to_string(i) + ": contains NaN or Inf");
             return false;
         }
     }
-
     return true;
-}
-
-bool SequenceLoader::hasMoreData() const {
-    return currentFileIndex_ < fileList_.size();
-}
-
-void SequenceLoader::reset() {
-    currentFileIndex_ = 0;
-    std::cout << "SequenceLoader: Reset to beginning of sequence" << std::endl;
 }
 
 void SequenceLoader::setError(const std::string& error) {

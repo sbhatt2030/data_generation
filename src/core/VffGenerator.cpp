@@ -94,7 +94,9 @@ void VffGenerator::resetContinuousState() {
         butterworth_state_.x_history[axis][0] = butterworth_state_.x_history[axis][1] = 0.0;
         butterworth_state_.y_history[axis][0] = butterworth_state_.y_history[axis][1] = 0.0;
     }
-
+    for (int axis = 0; axis < 3; ++axis) {
+        continuousState_.currentSines[axis].clear();
+    }
     std::cout << "Reset continuous VFF generation state" << std::endl;
 }
 
@@ -232,6 +234,52 @@ std::array<std::vector<double>, 3> VffGenerator::generateSparseVff(
     std::cout << "Generated sparse VFF with " << injection_count << " injections ("
         << std::fixed << std::setprecision(1)
         << (100.0 * injection_count / chunkSize) << "% of samples)" << std::endl;
+
+    return result;
+}
+
+std::array<std::vector<double>, 3> VffGenerator::generateSumOfSinusoids(
+    int chunkSize, const VffParams& params, double dt) {
+
+    std::array<std::vector<double>, 3> result;
+
+    // Draw new sine components for this chunk
+    std::uniform_real_distribution<double> amp_dist(params.min_amplitude, params.max_amplitude);
+    std::uniform_real_distribution<double> freq_dist(params.min_frequency, params.max_frequency);
+    std::uniform_real_distribution<double> phase_dist(0.0, 2.0 * M_PI);
+    std::uniform_int_distribution<int> sine_count_dist(params.min_num_sines, params.max_num_sines);
+
+    for (int axis = 0; axis < 3; ++axis) {
+        continuousState_.currentSines[axis].clear();
+        int num_sines = sine_count_dist(rng_);
+        for (int i = 0; i < num_sines; ++i) {
+            continuousState_.currentSines[axis].push_back({
+                amp_dist(rng_),
+                freq_dist(rng_),
+                phase_dist(rng_)
+                });
+        }
+    }
+
+    // Evaluate sines across chunk
+    for (int axis = 0; axis < 3; ++axis) {
+        result[axis].resize(chunkSize);
+        int num_sines = continuousState_.currentSines[axis].size();
+
+        for (int i = 0; i < chunkSize; ++i) {
+            double t = i * dt;
+            double sum = 0.0;
+            for (const auto& sine : continuousState_.currentSines[axis]) {
+                sum += sine.amplitude * std::sin(2.0 * M_PI * sine.frequency * t + sine.phase);
+            }
+            result[axis][i] = (num_sines > 0) ? sum / std::sqrt(static_cast<double>(num_sines)) : 0.0;
+        }
+    }
+
+    std::cout << "Generated VFF sum-of-sinusoids: X="
+        << continuousState_.currentSines[0].size() << " sines, Y="
+        << continuousState_.currentSines[1].size() << " sines, Z="
+        << continuousState_.currentSines[2].size() << " sines" << std::endl;
 
     return result;
 }

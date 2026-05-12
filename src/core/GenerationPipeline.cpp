@@ -39,7 +39,7 @@ bool GenerationPipeline::initialize(const std::string& gcodeFile, const Generati
     }
 
     // Step 2: Handle G-code (copy existing or generate new) - for session organization only
-    if (!gcodeFile.empty()) {
+    if (!gcodeFile.empty() && genParams.trajectory_type == TrajectoryType::EXISTING) {
         if (!copyGCodeFile(gcodeFile)) {
             std::cerr << "ERROR: Failed to copy G-code file: " << gcodeFile << std::endl;
             return false;

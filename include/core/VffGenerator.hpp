@@ -12,7 +12,8 @@ enum class VffType {
     SMOOTH_GAUSSIAN_DC_SHIFT = 1,
     SPARSE_VFF = 2,
     NO_VFF = 3,
-	EXISTING_SEQUENCE = 4
+	EXISTING_SEQUENCE = 4,
+	SUM_OF_SINUSOIDS = 5
 };
 
 class VffGenerator {
@@ -24,8 +25,13 @@ public:
         double min_dc_shift = -5.0;         // CSV: vff_min_dc
         double max_dc_shift = 5.0;          // CSV: vff_max_dc
         double max_amplitude = 10.0;        // CSV: vff_max_amplitude
+		double min_amplitude = 0.1;         // CSV: vff_min_amplitude 
         double max_frequency = 50.0;        // CSV: vff_max_freq
+        double min_frequency = 0.5;         // CSV: vff_min_freq (for sum of sinusoids)
         double sparse_probability = 0.02;   // CSV: vff_sparse_prob
+		int min_num_sines = 5;              // CSV: vff_min_sines (for sum of sinusoids)
+		int max_num_sines = 20;             // CSV: vff_max_sines (for sum of sinusoids)
+
     };
 
     /**
@@ -72,6 +78,12 @@ private:
     struct ContinuousState {
         bool initialized = false;
         int chunkCounter = 0;
+        struct SineComponent {
+            double amplitude;
+            double frequency;
+            double phase;
+        };
+        std::array<std::vector<SineComponent>, 3> currentSines;
     } continuousState_;
 
     // Butterworth filter state for smooth Gaussian VFF
@@ -96,6 +108,9 @@ private:
         int chunkSize, const VffParams& params, double dt);
 
     std::array<std::vector<double>, 3> generateSparseVff(
+        int chunkSize, const VffParams& params, double dt);
+
+    std::array<std::vector<double>, 3> generateSumOfSinusoids(
         int chunkSize, const VffParams& params, double dt);
 
     // Filtering methods

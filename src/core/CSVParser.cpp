@@ -249,7 +249,8 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         case 3: config.vffConfig.vffType = VffType::NO_VFF;
                 config.vffConfig.useVffGenerator = false; 
                 break;
-		case 4: config.vffConfig.vffType = VffType::EXISTING_SEQUENCE; break;   
+		case 4: config.vffConfig.vffType = VffType::EXISTING_SEQUENCE; break;  
+		case 5: config.vffConfig.vffType = VffType::SUM_OF_SINUSOIDS; break;
         default:
             setError("Row " + std::to_string(rowNumber) + ": Invalid vff_type: " + std::to_string(vffType));
             return false;
@@ -287,7 +288,14 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
             setError("Row " + std::to_string(rowNumber) + ": vff_sparse_prob must be between 0.0 and 1.0");
             return false;
         }
-
+        if (config.vffConfig.vffType == VffType::SUM_OF_SINUSOIDS) {
+            config.vffConfig.vffParams.min_amplitude = config.noiseParams.min_amplitude;
+            config.vffConfig.vffParams.max_amplitude = config.noiseParams.max_amplitude;
+            config.vffConfig.vffParams.min_frequency = config.noiseParams.min_frequency;
+            config.vffConfig.vffParams.max_frequency = config.noiseParams.max_frequency;
+            config.vffConfig.vffParams.min_num_sines = config.noiseParams.min_num_sines;
+            config.vffConfig.vffParams.max_num_sines = config.noiseParams.max_num_sines;
+        }
         // ================================================================
         // Seeds (Columns 19-22)
         // ================================================================
@@ -396,6 +404,7 @@ VffType CSVParser::parseVffType(const std::string& str) {
     case 2: return VffType::SPARSE_VFF;
     case 3: return VffType::NO_VFF;
 	case 4: return VffType::EXISTING_SEQUENCE;
+	case 5: return VffType::SUM_OF_SINUSOIDS;
     default:
         throw std::invalid_argument("Invalid vff_type: " + str);
     }

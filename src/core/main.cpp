@@ -44,8 +44,8 @@ void printUsage(const char* programName) {
  * Parse command line arguments
  */
 struct Arguments {
-    std::string csvFile = "test.csv";  // Default CSV file
-    std::string configFile = "config\\system_config.json";
+    std::string csvFile = "D:\\repos\\test.csv";  // Default CSV file
+    std::string configFile = "D:\\repos\\config\\system_config.json";
     std::string outputDir = "D:\\data_collection_" + getTimestamp();
     bool showHelp = false;
     bool valid = true;
