@@ -88,6 +88,7 @@ typedef struct AppCmdDataType
     // Enhanced data for CNC research (NEW)
     double dDeviationCmd[NUM_SHARED_AXES];        // Position deviation commands
     int iTargetLineNumber;                        // Target G-code line number for this command
+    int iVffMode;                                 // VFF injection mode: 0 = collection, 1 = testing
 
     AppCmdDataType()
     {
@@ -97,6 +98,7 @@ typedef struct AppCmdDataType
             dDeviationCmd[i] = 0.0;
         }
         iTargetLineNumber = -1;
+        iVffMode = 0;
     }
 } AppCmdDataType;
 

@@ -1,10 +1,8 @@
 ﻿#define _USE_MATH_DEFINES
 #include <cmath>
-#include "core/VffGenerator.hpp"
 #include <iostream>
-#include <random>
-#include <iomanip>
 #include <algorithm>
+#include "core/VffGenerator.hpp"
 
 VffGenerator::VffGenerator(unsigned int seed) {
     if (seed == 0) {
@@ -14,51 +12,49 @@ VffGenerator::VffGenerator(unsigned int seed) {
     else {
         rng_.seed(seed);
     }
-
     resetContinuousState();
 }
+
+// ============================================================================
+// Public interface
+// ============================================================================
 
 std::array<std::vector<double>, 3> VffGenerator::generateVffChunk(
     int chunkSize,
     VffType vffType,
     const VffParams& params,
-    double dt) {
-
-    // Initialize state if first chunk
+    double dt)
+{
     if (!continuousState_.initialized) {
         resetContinuousState();
         continuousState_.initialized = true;
     }
 
-    std::cout << "Generating VFF chunk: " << chunkSize << " samples, type " << static_cast<int>(vffType)
+    std::cout << "Generating VFF chunk: " << chunkSize
+        << " samples, type " << static_cast<int>(vffType)
         << ", max_amplitude " << params.max_amplitude << std::endl;
 
     std::array<std::vector<double>, 3> result;
 
-    // Generate VFF based on type
     switch (vffType) {
-    case VffType::SMOOTH_GAUSSIAN:
-        result = generateSmoothGaussian(chunkSize, params, dt);
+    case VffType::SQUARE_WAVE:
+        result = generateSquareWave(chunkSize, params);
         break;
-    case VffType::SMOOTH_GAUSSIAN_DC_SHIFT:
-        result = generateSmoothGaussianDCShift(chunkSize, params, dt);
+    case VffType::SMOOTH_RAMP:
+        result = generateSmoothRamp(chunkSize, params);
         break;
-    case VffType::SPARSE_VFF:
-        result = generateSparseVff(chunkSize, params, dt);
+    case VffType::SUM_OF_SINUSOIDS:
+        result = generateSumOfSinusoids(chunkSize, params, dt);
         break;
     case VffType::NO_VFF:
     case VffType::EXISTING_SEQUENCE:
     default:
-        /*result = generateVffTestPattern(chunkSize, params, dt);*/
-        // Return zero-filled vectors
-        for (int axis = 0; axis < 3; ++axis) {
-            result[axis].resize(chunkSize, 0.0);
-        }
+        for (int axis = 0; axis < 3; ++axis)
+            result[axis].assign(chunkSize, 0.0);
         break;
     }
 
     continuousState_.chunkCounter++;
-    std::cout << "Generated VFF chunk successfully" << std::endl;
     return result;
 }
 
@@ -66,188 +62,159 @@ void VffGenerator::addVffToChunk(
     std::vector<InputDataPoint>& chunk,
     VffType vffType,
     const VffParams& params,
-    double dt) {
-
+    double dt)
+{
     if (chunk.empty()) return;
 
-    // Generate VFF signals for the chunk
-    std::array<std::vector<double>, 3> vffSignals = generateVffChunk(
-        static_cast<int>(chunk.size()), vffType, params, dt);
+    auto signals = generateVffChunk(static_cast<int>(chunk.size()), vffType, params, dt);
 
-    // Add VFF data to each point in the chunk
     for (size_t i = 0; i < chunk.size(); ++i) {
-        chunk[i].vff_x = vffSignals[0][i];
-        chunk[i].vff_y = vffSignals[1][i];
-        chunk[i].vff_z = vffSignals[2][i];
+        chunk[i].vff_x = signals[0][i];
+        chunk[i].vff_y = signals[1][i];
+        chunk[i].vff_z = signals[2][i];
     }
-
-    std::cout << "Added VFF data to chunk" << std::endl;
 }
 
 void VffGenerator::resetContinuousState() {
     continuousState_.initialized = false;
     continuousState_.chunkCounter = 0;
-
-    // Reset Butterworth filter state
-    butterworth_state_.initialized = false;
+    continuousState_.current_amplitude = { 0.0, 0.0, 0.0 };
+    continuousState_.next_amplitude = { 0.0, 0.0, 0.0 };
+    continuousState_.control_point = { 0.0, 0.0, 0.0 };
+    continuousState_.dwell_remaining = { 0,   0,   0 };
+    continuousState_.segment_length = { 0,   0,   0 };
     for (int axis = 0; axis < 3; ++axis) {
-        butterworth_state_.x_history[axis][0] = butterworth_state_.x_history[axis][1] = 0.0;
-        butterworth_state_.y_history[axis][0] = butterworth_state_.y_history[axis][1] = 0.0;
-    }
-    for (int axis = 0; axis < 3; ++axis) {
+        continuousState_.phase[axis] = ContinuousState::Phase::FLAT;
         continuousState_.currentSines[axis].clear();
     }
-    std::cout << "Reset continuous VFF generation state" << std::endl;
 }
 
-std::array<std::vector<double>, 3> VffGenerator::generateSmoothGaussian(
-    int chunkSize, const VffParams& params, double dt) {
+// ============================================================================
+// Type 1: Square wave — jump to random amplitude, hold for random dwell
+// ============================================================================
 
+std::array<std::vector<double>, 3> VffGenerator::generateSquareWave(
+    int chunkSize, const VffParams& params)
+{
     std::array<std::vector<double>, 3> result;
-
-    // σ = max_amplitude/3 (ignore min_amplitude)
-    double sigma = params.max_amplitude;
-
-    // Generate for each axis
-    for (int axis = 0; axis < 3; ++axis) {
+    for (int axis = 0; axis < 3; ++axis)
         result[axis].resize(chunkSize);
 
+    for (int axis = 0; axis < 3; ++axis) {
+        if (continuousState_.dwell_remaining[axis] <= 0) {
+            continuousState_.current_amplitude[axis] = drawAmplitude(params);
+            continuousState_.dwell_remaining[axis] = drawDwell(params);
+        }
+
         for (int i = 0; i < chunkSize; ++i) {
-            // Generate white Gaussian noise
-            result[axis][i] = generateGaussianNoise(0.0, sigma);
-        }
-    }
+            result[axis][i] = continuousState_.current_amplitude[axis];
 
-    // Apply 2nd order Butterworth low-pass filter at max_frequency
-    for (int i = 0; i < chunkSize; ++i) {
-        for (int axis = 0; axis < 3; ++axis) {
-            applyButterworthFilterSingleAxis(result[axis][i], axis, params.max_frequency, dt);
-        }
-    }
-    for (int axis = 0; axis < 3; ++axis) {
-        for (int i = 0; i < chunkSize; ++i) {
-            result[axis][i] = std::clamp(result[axis][i], -params.max_amplitude, params.max_amplitude);
-        }
-    }
-
-    return result;
-}
-
-std::array<std::vector<double>, 3> VffGenerator::generateSmoothGaussianDCShift(
-    int chunkSize, const VffParams& params, double dt) {
-
-    std::array<std::vector<double>, 3> result;
-
-    // Generate random DC shift for each axis: uniform [min_dc_shift, max_dc_shift]
-    std::uniform_real_distribution<double> amplitude_dist(
-        std::abs(params.min_dc_shift),
-        std::abs(params.max_dc_shift));
-    std::uniform_real_distribution<double> polarity_dist(-1.0, 1.0);
-
-    std::array<double, 3> dc_shifts;
-    for (int axis = 0; axis < 3; ++axis) {
-        double amplitude = amplitude_dist(rng_);
-        double polarity = (polarity_dist(rng_) >= 0.0) ? 1.0 : -1.0;
-        dc_shifts[axis] = amplitude * polarity;
-    }
-    for (int axis = 0; axis < 3; ++axis) {
-        if (std::abs(dc_shifts[axis]) >= params.max_amplitude) {
-            std::cerr << "WARNING: DC shift axis " << axis << " (" << dc_shifts[axis]
-                << ") exceeds or equals max_amplitude (" << params.max_amplitude
-                << "). This leaves no room for Gaussian noise!" << std::endl;
-        }
-    }
-    // Generate for each axis
-// Generate for each axis
-    for (int axis = 0; axis < 3; ++axis) {
-        result[axis].resize(chunkSize);
-
-        // σ = (max_amplitude - |DC_shift|) / 3
-        double sigma = (params.max_amplitude - std::abs(dc_shifts[axis]));
-
-        // Ensure sigma is positive
-        if (sigma <= 0.0) {
-            sigma = 0.001; // Minimal noise if DC shift is too large
-        }
-
-        // Generate ONLY Gaussian noise (without DC shift yet)
-        for (int i = 0; i < chunkSize; ++i) {
-            result[axis][i] = generateGaussianNoise(0.0, sigma);
-        }
-    }
-
-    // Apply 2nd order Butterworth low-pass filter to ONLY the Gaussian component
-    for (int i = 0; i < chunkSize; ++i) {
-        for (int axis = 0; axis < 3; ++axis) {
-            applyButterworthFilterSingleAxis(result[axis][i], axis, params.max_frequency, dt);
-        }
-    }
-
-    // NOW add the DC shift (unfiltered) to the filtered Gaussian noise
-    for (int axis = 0; axis < 3; ++axis) {
-        for (int i = 0; i < chunkSize; ++i) {
-            result[axis][i] += dc_shifts[axis];
-        }
-    }
-
-    for (int axis = 0; axis < 3; ++axis) {
-        for (int i = 0; i < chunkSize; ++i) {
-            result[axis][i] = std::clamp(result[axis][i], -params.max_amplitude, params.max_amplitude);
-        }
-    }
-    std::cout << "Generated VFF with DC shifts: X=" << dc_shifts[0]
-        << ", Y=" << dc_shifts[1] << ", Z=" << dc_shifts[2] << std::endl;
-
-    return result;
-}
-
-std::array<std::vector<double>, 3> VffGenerator::generateSparseVff(
-    int chunkSize, const VffParams& params, double dt) {
-
-    std::array<std::vector<double>, 3> result;
-
-    // Initialize all to zero
-    for (int axis = 0; axis < 3; ++axis) {
-        result[axis].resize(chunkSize, 0.0);
-    }
-
-    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
-    std::uniform_real_distribution<double> amplitude_dist(
-        std::abs(params.min_dc_shift),
-        std::abs(params.max_dc_shift));
-    std::uniform_real_distribution<double> polarity_dist(-1.0, 1.0);
-
-    int injection_count = 0;
-    for (int i = 0; i < chunkSize; ++i) {
-        if (prob_dist(rng_) < params.sparse_probability) {
-            // Apply sparse injection
-            for (int axis = 0; axis < 3; ++axis) {
-                double amplitude = amplitude_dist(rng_);
-                double polarity = (polarity_dist(rng_) >= 0.0) ? 1.0 : -1.0;
-                result[axis][i] = amplitude * polarity;
+            continuousState_.dwell_remaining[axis]--;
+            if (continuousState_.dwell_remaining[axis] <= 0) {
+                continuousState_.current_amplitude[axis] = drawAmplitude(params);
+                continuousState_.dwell_remaining[axis] = drawDwell(params);
             }
-            injection_count++;
         }
-        // else: result[axis][i] remains 0.0
     }
-
-    std::cout << "Generated sparse VFF with " << injection_count << " injections ("
-        << std::fixed << std::setprecision(1)
-        << (100.0 * injection_count / chunkSize) << "% of samples)" << std::endl;
 
     return result;
 }
+
+// ============================================================================
+// Type 2: Smooth ramp — alternates between two phases:
+//   RAMP : quadratic Bezier from current_amplitude -> next_amplitude
+//   FLAT : constant at current_amplitude
+// Both durations drawn from exponential(mean=200, floor=10).
+// ============================================================================
+
+std::array<std::vector<double>, 3> VffGenerator::generateSmoothRamp(
+    int chunkSize, const VffParams& params)
+{
+    std::array<std::vector<double>, 3> result;
+    for (int axis = 0; axis < 3; ++axis)
+        result[axis].resize(chunkSize);
+
+    std::uniform_real_distribution<double> straight_dist(0.0, 1.0);
+
+    for (int axis = 0; axis < 3; ++axis) {
+
+        // Bootstrap
+        if (continuousState_.dwell_remaining[axis] <= 0) {
+            continuousState_.current_amplitude[axis] = drawAmplitude(params);
+            continuousState_.phase[axis] = ContinuousState::Phase::FLAT;
+            int len = drawDwell(params);
+            continuousState_.dwell_remaining[axis] = len;
+            continuousState_.segment_length[axis] = len;
+        }
+
+        int i = 0;
+        while (i < chunkSize) {
+            int toWrite = std::min(continuousState_.dwell_remaining[axis], chunkSize - i);
+            int segLen = continuousState_.segment_length[axis];
+            int segStart = segLen - continuousState_.dwell_remaining[axis];
+            auto& ph = continuousState_.phase[axis];
+
+            for (int s = 0; s < toWrite; ++s) {
+                if (ph == ContinuousState::Phase::FLAT) {
+                    result[axis][i + s] = continuousState_.current_amplitude[axis];
+                }
+                else {
+                    double t = (segLen > 1)
+                        ? static_cast<double>(segStart + s) / static_cast<double>(segLen - 1)
+                        : 1.0;
+                    t = std::clamp(t, 0.0, 1.0);
+                    double u = 1.0 - t;
+                    double A = continuousState_.current_amplitude[axis];
+                    double B = continuousState_.next_amplitude[axis];
+                    double P1 = continuousState_.control_point[axis];
+                    result[axis][i + s] = u * u * A + 2.0 * u * t * P1 + t * t * B;
+                }
+            }
+
+            i += toWrite;
+            continuousState_.dwell_remaining[axis] -= toWrite;
+
+            if (continuousState_.dwell_remaining[axis] <= 0) {
+                if (ph == ContinuousState::Phase::FLAT) {
+                    // Start a ramp toward a new target
+                    continuousState_.next_amplitude[axis] = drawAmplitude(params);
+                    continuousState_.control_point[axis] = drawControlPoint(
+                        continuousState_.current_amplitude[axis],
+                        continuousState_.next_amplitude[axis],
+                        params, straight_dist(rng_) < 0.2);
+                    int len = drawDwell(params);
+                    continuousState_.dwell_remaining[axis] = len;
+                    continuousState_.segment_length[axis] = len;
+                    ph = ContinuousState::Phase::RAMP;
+                }
+                else {
+                    // Ramp done — arrive at next_amplitude, start flat
+                    continuousState_.current_amplitude[axis] = continuousState_.next_amplitude[axis];
+                    int len = drawDwell(params);
+                    continuousState_.dwell_remaining[axis] = len;
+                    continuousState_.segment_length[axis] = len;
+                    ph = ContinuousState::Phase::FLAT;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Type 3: Sum of sinusoids — new components drawn each chunk
+// ============================================================================
 
 std::array<std::vector<double>, 3> VffGenerator::generateSumOfSinusoids(
-    int chunkSize, const VffParams& params, double dt) {
-
+    int chunkSize, const VffParams& params, double dt)
+{
     std::array<std::vector<double>, 3> result;
 
-    // Draw new sine components for this chunk
-    std::uniform_real_distribution<double> amp_dist(params.min_amplitude, params.max_amplitude);
+    std::uniform_real_distribution<double> amp_dist(0.0, params.max_amplitude);
     std::uniform_real_distribution<double> freq_dist(params.min_frequency, params.max_frequency);
     std::uniform_real_distribution<double> phase_dist(0.0, 2.0 * M_PI);
-    std::uniform_int_distribution<int> sine_count_dist(params.min_num_sines, params.max_num_sines);
+    std::uniform_int_distribution<int>     sine_count_dist(params.min_num_sines, params.max_num_sines);
 
     for (int axis = 0; axis < 3; ++axis) {
         continuousState_.currentSines[axis].clear();
@@ -261,22 +228,33 @@ std::array<std::vector<double>, 3> VffGenerator::generateSumOfSinusoids(
         }
     }
 
-    // Evaluate sines across chunk
     for (int axis = 0; axis < 3; ++axis) {
         result[axis].resize(chunkSize);
-        int num_sines = continuousState_.currentSines[axis].size();
+        int num_sines = static_cast<int>(continuousState_.currentSines[axis].size());
 
+        // Evaluate raw sum
         for (int i = 0; i < chunkSize; ++i) {
             double t = i * dt;
             double sum = 0.0;
-            for (const auto& sine : continuousState_.currentSines[axis]) {
-                sum += sine.amplitude * std::sin(2.0 * M_PI * sine.frequency * t + sine.phase);
+            for (const auto& s : continuousState_.currentSines[axis])
+                sum += s.amplitude * std::sin(2.0 * M_PI * s.frequency * t + s.phase);
+            result[axis][i] = (num_sines > 0) ? sum : 0.0;
+        }
+
+        // Normalize so peak magnitude == max_amplitude
+        if (num_sines > 0) {
+            double peak = 0.0;
+            for (double v : result[axis])
+                peak = std::max(peak, std::abs(v));
+            if (peak > 1e-9) {
+                double scale = params.max_amplitude / peak;
+                for (double& v : result[axis])
+                    v *= scale;
             }
-            result[axis][i] = (num_sines > 0) ? sum / std::sqrt(static_cast<double>(num_sines)) : 0.0;
         }
     }
 
-    std::cout << "Generated VFF sum-of-sinusoids: X="
+    std::cout << "Generated sum-of-sinusoids VFF: X="
         << continuousState_.currentSines[0].size() << " sines, Y="
         << continuousState_.currentSines[1].size() << " sines, Z="
         << continuousState_.currentSines[2].size() << " sines" << std::endl;
@@ -284,192 +262,44 @@ std::array<std::vector<double>, 3> VffGenerator::generateSumOfSinusoids(
     return result;
 }
 
-void VffGenerator::applyButterworthFilterSingleAxis(double& sample, int axis, double cutoff_freq, double dt) {
-    // 2nd order Butterworth low-pass filter
-    const double omega_c = 2.0 * M_PI * cutoff_freq;
-    const double k = std::tan(omega_c * dt / 2.0);
-    const double norm = 1.0 / (1.0 + M_SQRT2 * k + k * k);
-
-    const double b0 = k * k * norm;
-    const double b1 = 2.0 * b0;
-    const double b2 = b0;
-    const double a1 = 2.0 * (k * k - 1.0) * norm;
-    const double a2 = (1.0 - M_SQRT2 * k + k * k) * norm;
-
-    double x_current = sample;
-
-    // Apply filter: y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
-    double y_current = b0 * x_current +
-        b1 * butterworth_state_.x_history[axis][0] +
-        b2 * butterworth_state_.x_history[axis][1] -
-        a1 * butterworth_state_.y_history[axis][0] -
-        a2 * butterworth_state_.y_history[axis][1];
-
-    // Update history for this axis only
-    butterworth_state_.x_history[axis][1] = butterworth_state_.x_history[axis][0];
-    butterworth_state_.x_history[axis][0] = x_current;
-    butterworth_state_.y_history[axis][1] = butterworth_state_.y_history[axis][0];
-    butterworth_state_.y_history[axis][0] = y_current;
-
-    sample = y_current;
-    butterworth_state_.initialized = true;
-}
-
-double VffGenerator::generateGaussianNoise(double mean, double std_dev) const {
-    std::normal_distribution<double> dist(mean, std_dev);
-    return dist(rng_);
-}
-
 // ============================================================================
-// Legacy interface methods (simplified for compatibility)
+// Helpers
 // ============================================================================
 
-std::array<std::vector<double>, 3> VffGenerator::generateAllAxes() {
-    // Legacy method - use default parameters
-    VffParams defaultParams;
-    return generateVffChunk(signalLength_, VffType::SMOOTH_GAUSSIAN, defaultParams, 0.00025);
+// Amplitude: uniform draw from [0, max_amplitude], rounded to nearest 0.1,
+// then a random sign applied.
+double VffGenerator::drawAmplitude(const VffParams& params) {
+    std::uniform_real_distribution<double> amp_dist(0.0, params.max_amplitude);
+    double raw = amp_dist(rng_);
+    double mag = std::round(raw * 10.0) / 10.0;  // round to nearest 0.1
+    mag = std::clamp(mag, 0.0, params.max_amplitude);
+
+    std::uniform_int_distribution<int> sign_dist(0, 1);
+    double sign = sign_dist(rng_) ? 1.0 : -1.0;
+    return mag * sign;
 }
 
-std::array<std::vector<double>, 3> VffGenerator::generateAllAxes(
-    const std::array<double, 3>& amplitudes,
-    const std::array<double, 3>& alphas) {
+// Dwell: exponential distribution with mean ~400 samples, hard floor of 50.
+int VffGenerator::drawDwell(const VffParams& params) {
+    std::exponential_distribution<double> exp_dist(1.0 / params.mean_dwell_samples);
+    int d = static_cast<int>(std::round(exp_dist(rng_)));
+    return std::max(d, params.min_dwell_samples);
+}
 
-    std::array<std::vector<double>, 3> result;
-
-    for (int axis = 0; axis < 3; ++axis) {
-        double amplitude = (amplitudes[axis] > 0.0) ? amplitudes[axis] : getRandomAmplitude();
-        double alpha = (alphas[axis] > 0.0) ? alphas[axis] : getRandomAlpha();
-
-        result[axis] = generateType1(amplitude, alpha); // Default to TYPE_1
+// Control point for quadratic Bezier.
+// straight == true  -> P1 = midpoint (straight line)
+// straight == false -> P1 drawn uniformly from the range [A,B] extended by
+//                      +/- max_amplitude on each side, giving genuine curvature.
+double VffGenerator::drawControlPoint(
+    double A, double B, const VffParams& params, bool straight)
+{
+    if (straight) {
+        return (A + B) / 2.0;
     }
 
-    return result;
-}
-
-std::vector<double> VffGenerator::generateType1(double amplitude, double alpha) const {
-    // Type 1: Fixed amplitude + smooth noise (10% of amplitude)
-    std::vector<double> smoothNoise = generateSmoothedNoise(alpha);
-
-    // Scale smooth noise to 10% of amplitude
-    double noiseAmplitude = 0.1 * amplitude;
-
-    std::vector<double> result(signalLength_);
-    for (int i = 0; i < signalLength_; ++i) {
-        result[i] = amplitude + (smoothNoise[i] * noiseAmplitude);
-    }
-
-    return result;
-}
-
-std::vector<double> VffGenerator::generateType2(double amplitude, double alpha) const {
-    // Type 2: Pure smooth random signal
-    std::vector<double> smoothNoise = generateSmoothedNoise(alpha);
-
-    // Scale to desired amplitude
-    for (double& value : smoothNoise) {
-        value *= amplitude;
-    }
-
-    return smoothNoise;
-}
-
-std::vector<double> VffGenerator::generateType3(double amplitude) const {
-    std::vector<double> result(signalLength_, 0.0);  // Start with zeros
-
-    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
-    std::uniform_real_distribution<double> amplitude_dist(minAmplitude_, maxAmplitude_);
-    std::uniform_real_distribution<double> polarity_dist(-1.0, 1.0);
-
-    for (int i = 0; i < signalLength_; ++i) {
-        if (prob_dist(rng_) < sparseProbability_) {
-            double injection_amplitude = amplitude_dist(rng_);
-            double polarity = (polarity_dist(rng_) >= 0.0) ? 1.0 : -1.0;
-            result[i] = injection_amplitude * polarity;
-        }
-        // else: result[i] remains 0.0
-    }
-
-    return result;
-}
-
-double VffGenerator::getRandomAmplitude() const {
-    std::uniform_real_distribution<double> dist(minAmplitude_, maxAmplitude_);
-    return dist(rng_);
-}
-
-double VffGenerator::getRandomAlpha() const {
-    std::uniform_real_distribution<double> dist(minAlpha_, maxAlpha_);
-    return dist(rng_);
-}
-
-std::vector<double> VffGenerator::generateSmoothedNoise(double alpha) const {
-    std::vector<double> result(signalLength_);
-    std::uniform_real_distribution<double> noiseDist(-1.0, 1.0);
-
-    // Initialize first sample
-    result[0] = noiseDist(rng_);
-
-    // Apply exponential smoothing: y[n] = alpha * x[n] + (1-alpha) * y[n-1]
-    for (int i = 1; i < signalLength_; ++i) {
-        double newNoise = noiseDist(rng_);
-        result[i] = (1.0 - alpha) * newNoise + alpha * result[i - 1];
-    }
-
-    return result;
-}
-
-std::array<std::vector<double>, 3> VffGenerator::generateVffTestPattern(
-    int chunkSize, const VffParams& params, double dt) {
-
-    std::array<std::vector<double>, 3> result;
-
-    // VFF test pattern configuration (10x larger than deviation pattern)
-    const double minValue = 0.00001;  // 10x larger than deviation
-    const double maxValue = 0.08000;  // 10x larger than deviation
-    const int cycleLength = 16000;   // Different cycle length for VFF
-
-    std::cout << "Generating VFF test pattern: " << chunkSize << " samples" << std::endl;
-    std::cout << "  VFF range: " << std::scientific << std::setprecision(4)
-        << minValue << " to " << maxValue << std::endl;
-
-    // Calculate starting sample index for this chunk
-    int startSampleIndex = continuousState_.chunkCounter * chunkSize;
-
-    // Generate for each axis
-    for (int axis = 0; axis < 3; ++axis) {
-        result[axis].resize(chunkSize);
-
-        // Different phase shift for each axis
-        int phaseShift = axis * (cycleLength / 3); // 33% phase shift between axes
-
-        for (int i = 0; i < chunkSize; ++i) {
-            int globalSampleIndex = startSampleIndex + i + phaseShift;
-            int cyclePosition = globalSampleIndex % cycleLength;
-
-            double value;
-            if (cyclePosition < cycleLength / 2) {
-                // First half: ramp up from min to max
-                double progress = static_cast<double>(cyclePosition) / (cycleLength / 2);
-                value = minValue + (maxValue - minValue) * progress;
-            }
-            else {
-                // Second half: ramp down from max to min
-                double progress = static_cast<double>(cyclePosition - cycleLength / 2) / (cycleLength / 2);
-                value = maxValue - (maxValue - minValue) * progress;
-            }
-
-            result[axis][i] = value;
-        }
-    }
-
-    // Debug output for first chunk
-    if (continuousState_.chunkCounter == 0) {
-        std::cout << "VFF test pattern first chunk samples:" << std::endl;
-        for (int i = 0; i < std::min(10, chunkSize); i += 2) {
-            std::cout << "  Sample " << i << ": X=" << std::scientific << std::setprecision(4)
-                << result[0][i] << ", Y=" << result[1][i] << ", Z=" << result[2][i] << std::endl;
-        }
-    }
-
-    return result;
+    double lo = std::clamp(std::min(A, B) - params.max_amplitude, -params.max_amplitude, params.max_amplitude);
+    double hi = std::clamp(std::max(A, B) + params.max_amplitude, -params.max_amplitude, params.max_amplitude);
+    if (lo >= hi) return (A + B) / 2.0;  // fallback to straight if range collapses
+    std::uniform_real_distribution<double> cp_dist(lo, hi);
+    return cp_dist(rng_);
 }

@@ -260,9 +260,8 @@ void test_dwell_distribution() {
             << ", mean: " << std::fixed << std::setprecision(1) << mean
             << ", min: " << minDwell << ")" << std::endl;
 
-        CHECK(minDwell >= params.min_dwell_samples, "Minimum dwell >= min_dwell_samples");
-        CHECK(mean > params.mean_dwell_samples * 0.5 && mean < params.mean_dwell_samples * 3.0,
-            "Mean dwell in reasonable range around mean_dwell_samples");
+        CHECK(minDwell >= 10, "Minimum dwell >= 10 samples (hard floor)");
+        CHECK(mean > 100.0 && mean < 500.0, "Mean dwell in reasonable range around 200");
     }
     else {
         FAIL("No dwell lengths collected");

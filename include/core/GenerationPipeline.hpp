@@ -30,20 +30,7 @@
 struct VffConfig {
     bool useVffGenerator = true;
     VffType vffType = VffType::NO_VFF;
-
     VffGenerator::VffParams vffParams;
-
-    // Legacy fields (keep for compatibility)
-    double minAmplitude = 0.1;
-    double maxAmplitude = 10.0;
-    double minAlpha = 0.01;
-    double maxAlpha = 0.2;
-    bool usePerAxisVff = false;
-    double sparseVffProbability = 0.02;
-    double minSparseVffAmplitude = 1.0;
-    double maxSparseVffAmplitude = 25.0;
-    std::array<double, 3> fixedAmplitudes = { 0.0, 0.0, 0.0 };
-    std::array<double, 3> fixedAlphas = { 0.0, 0.0, 0.0 };
 };
 
 /**

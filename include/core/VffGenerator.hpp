@@ -8,132 +8,94 @@
 
 
 enum class VffType {
-    SMOOTH_GAUSSIAN = 0,
-    SMOOTH_GAUSSIAN_DC_SHIFT = 1,
-    SPARSE_VFF = 2,
-    NO_VFF = 3,
-	EXISTING_SEQUENCE = 4,
-	SUM_OF_SINUSOIDS = 5
+    NO_VFF = 0,
+    SQUARE_WAVE = 1,
+    SMOOTH_RAMP = 2,
+    SUM_OF_SINUSOIDS = 3,
+    EXISTING_SEQUENCE = 4
 };
 
 class VffGenerator {
 public:
-    /**
-     * Clean VFF parameters - maps directly to CSV columns
-     */
     struct VffParams {
-        double min_dc_shift = -5.0;         // CSV: vff_min_dc
-        double max_dc_shift = 5.0;          // CSV: vff_max_dc
-        double max_amplitude = 10.0;        // CSV: vff_max_amplitude
-		double min_amplitude = 0.1;         // CSV: vff_min_amplitude 
-        double max_frequency = 50.0;        // CSV: vff_max_freq
-        double min_frequency = 0.5;         // CSV: vff_min_freq (for sum of sinusoids)
-        double sparse_probability = 0.02;   // CSV: vff_sparse_prob
-		int min_num_sines = 5;              // CSV: vff_min_sines (for sum of sinusoids)
-		int max_num_sines = 20;             // CSV: vff_max_sines (for sum of sinusoids)
+        // Amplitude: drawn from [0, max_amplitude] rounded to nearest 0.1, random sign
+        double max_amplitude = 5.0;   // CSV: vff_max_amplitude
 
+        // Dwell: exponential distribution
+        double mean_dwell_samples = 500.0; // CSV: vff_mean_dwell
+        int    min_dwell_samples = 80;    // CSV: vff_min_dwell
+
+        // Sum-of-sinusoids parameters (Type 3 only)
+        double min_frequency = 0.1;   // CSV: vff_min_freq
+        double max_frequency = 10.0;  // CSV: vff_max_freq
+        int    min_num_sines = 2;     // CSV: vff_min_sines
+        int    max_num_sines = 8;     // CSV: vff_max_sines
     };
 
-    /**
-     * Constructor
-     */
+    // Per-sinusoid state for Type 3
+    struct SineComponent {
+        double amplitude;
+        double frequency;
+        double phase;
+    };
+
+    // State carried across chunks
+    struct ContinuousState {
+        bool initialized = false;
+        int  chunkCounter = 0;
+
+        // Types 1 & 2
+        std::array<double, 3> current_amplitude = { 0.0, 0.0, 0.0 };
+        std::array<int, 3> dwell_remaining = { 0,   0,   0 };
+
+        // Type 2: two-phase alternation per axis
+        enum class Phase { RAMP, FLAT };
+        std::array<Phase, 3> phase = { Phase::FLAT, Phase::FLAT, Phase::FLAT };
+        std::array<double, 3> next_amplitude = { 0.0, 0.0, 0.0 };
+        std::array<double, 3> control_point = { 0.0, 0.0, 0.0 };
+        std::array<int, 3> segment_length = { 0,   0,   0 };
+
+        // Type 3: active sine components per axis
+        std::array<std::vector<SineComponent>, 3> currentSines;
+    };
+
     explicit VffGenerator(unsigned int seed = 0);
 
-    /**
-     * Generate VFF signals for a chunk of samples (8000 points)
-     * Each chunk starts fresh - no continuity between chunks
-     */
-    std::array<std::vector<double>, 3> generateVffChunk(
-        int chunkSize,
-        VffType vffType,
-        const VffParams& params,
-        double dt);
-
-    /**
-     * Add VFF signals to existing InputDataPoint chunk
-     */
+    // Primary interface
     void addVffToChunk(
         std::vector<InputDataPoint>& chunk,
         VffType vffType,
         const VffParams& params,
         double dt);
 
-    /**
-     * Reset continuous generation state (for new experiments)
-     */
-    void resetContinuousState();
+    // Raw generation (exposed for testing)
+    std::array<std::vector<double>, 3> generateVffChunk(
+        int chunkSize,
+        VffType vffType,
+        const VffParams& params,
+        double dt);
 
-    /**
-     * Legacy interface methods (keep for compatibility)
-     */
-    std::array<std::vector<double>, 3> generateAllAxes();
-    std::array<std::vector<double>, 3> generateAllAxes(
-        const std::array<double, 3>& amplitudes,
-        const std::array<double, 3>& alphas);
+    void resetContinuousState();
 
 private:
     mutable std::mt19937 rng_;
+    ContinuousState continuousState_;
 
-    // Continuous generation state (minimal - chunks are independent)
-    struct ContinuousState {
-        bool initialized = false;
-        int chunkCounter = 0;
-        struct SineComponent {
-            double amplitude;
-            double frequency;
-            double phase;
-        };
-        std::array<std::vector<SineComponent>, 3> currentSines;
-    } continuousState_;
+    std::array<std::vector<double>, 3> generateSquareWave(
+        int chunkSize, const VffParams& params);
 
-    // Butterworth filter state for smooth Gaussian VFF
-    mutable struct ButterworthState {
-        bool initialized = false;
-        std::array<std::array<double, 2>, 3> x_history; // [axis][sample] - input history
-        std::array<std::array<double, 2>, 3> y_history; // [axis][sample] - output history
-
-        ButterworthState() {
-            for (int axis = 0; axis < 3; ++axis) {
-                x_history[axis][0] = x_history[axis][1] = 0.0;
-                y_history[axis][0] = y_history[axis][1] = 0.0;
-            }
-        }
-    } butterworth_state_;
-
-    // Type-specific generation methods
-    std::array<std::vector<double>, 3> generateSmoothGaussian(
-        int chunkSize, const VffParams& params, double dt);
-
-    std::array<std::vector<double>, 3> generateSmoothGaussianDCShift(
-        int chunkSize, const VffParams& params, double dt);
-
-    std::array<std::vector<double>, 3> generateSparseVff(
-        int chunkSize, const VffParams& params, double dt);
+    std::array<std::vector<double>, 3> generateSmoothRamp(
+        int chunkSize, const VffParams& params);
 
     std::array<std::vector<double>, 3> generateSumOfSinusoids(
         int chunkSize, const VffParams& params, double dt);
 
-    // Filtering methods
-    void applyButterworthFilterSingleAxis(double& sample, int axis, double cutoff_freq, double dt);
+    // Draw amplitude: uniform in [0, max], rounded to 0.1, random sign
+    double drawAmplitude(const VffParams& params);
 
-    // Utility methods
-    double generateGaussianNoise(double mean, double std_dev) const;
+    // Draw dwell: exponential(mean=400), floor 50
+    int    drawDwell(const VffParams& params);
 
-    // Legacy methods (simplified - keep for compatibility)
-    std::vector<double> generateType1(double amplitude, double alpha) const;
-    std::vector<double> generateType2(double amplitude, double alpha) const;
-    std::vector<double> generateType3(double amplitude) const;
-    double getRandomAmplitude() const;
-    double getRandomAlpha() const;
-    std::vector<double> generateSmoothedNoise(double alpha) const;
-
-    std::array<std::vector<double>, 3> generateVffTestPattern(int chunkSize, const VffParams& params, double dt);
-
-    // Legacy configuration (for compatibility)
-    double minAmplitude_ = 0.1;
-    double maxAmplitude_ = 10.0;
-    double minAlpha_ = 0.01;
-    double maxAlpha_ = 0.2;
-    int signalLength_ = 8000;
-    double sparseProbability_ = 0.02;
+    // Draw quadratic Bezier control point between A and B
+    double drawControlPoint(double A, double B, const VffParams& params, bool straight);
 };

@@ -13,10 +13,10 @@
 namespace fs = std::filesystem;
 
 GenerationPipeline::GenerationPipeline(const std::string& outputFolder,
-            unsigned int gcodeGeneratorSeed,
-            unsigned int noiseGeneratorSeed,
-            unsigned int vffGeneratorSeed): 
-    baseOutputFolder_(outputFolder), 
+    unsigned int gcodeGeneratorSeed,
+    unsigned int noiseGeneratorSeed,
+    unsigned int vffGeneratorSeed) :
+    baseOutputFolder_(outputFolder),
     noiseType_(KinematicNoiseType::SMOOTH_GAUSSIAN_BANDPASS),
     gcodeGeneratorSeed_(gcodeGeneratorSeed),
     noiseGeneratorSeed_(noiseGeneratorSeed),
@@ -196,6 +196,7 @@ std::vector<InputDataPoint> GenerationPipeline::generateContinuousNoiseChunk() {
                     chunk[i].vff_x = vffData[i].x();
                     chunk[i].vff_y = vffData[i].y();
                     chunk[i].vff_z = vffData[i].z();
+                    chunk[i].vff_mode = 1;  // testing mode — inject as-is, no sign(v_cmd)
                 }
 
                 std::cout << "Applied " << vffData.size() << " VFF samples from file" << std::endl;
@@ -221,42 +222,32 @@ void GenerationPipeline::addVFFToChunk(std::vector<InputDataPoint>& chunk) {
         return;
     }
 
-    // ADD THESE CHECKS:
     if (!vffConfig_.useVffGenerator || vffConfig_.vffType == VffType::NO_VFF) {
-        return;  // Skip VFF generation
+        return;
     }
 
+    // Determine mode flag: EXISTING_SEQUENCE = testing (1), all others = collection (0)
+    int vffMode = (vffConfig_.vffType == VffType::EXISTING_SEQUENCE) ? 1 : 0;
+
     try {
-        // Generate VFF signals for the chunk
-        std::array<std::vector<double>, 3> vffSignals;
+        std::array<std::vector<double>, 3> vffSignals = vffGenerator_->generateVffChunk(
+            chunk.size(),
+            vffConfig_.vffType,
+            vffConfig_.vffParams,
+            motionConfig_.getTimeStep());
 
-        if (vffConfig_.usePerAxisVff) {
-            vffSignals = vffGenerator_->generateAllAxes(
-                vffConfig_.fixedAmplitudes,
-                vffConfig_.fixedAlphas);
-        }
-        else {
-            vffSignals = vffGenerator_->generateVffChunk(
-                chunk.size(),
-                vffConfig_.vffType,
-                vffConfig_.vffParams,
-                motionConfig_.getTimeStep());
-        }
-
-        // Add VFF data to each point in the chunk
         size_t chunkSize = chunk.size();
         for (size_t i = 0; i < chunkSize && i < vffSignals[0].size(); ++i) {
             chunk[i].vff_x = vffSignals[0][i];
             chunk[i].vff_y = vffSignals[1][i];
             chunk[i].vff_z = vffSignals[2][i];
+            chunk[i].vff_mode = vffMode;
         }
 
-        std::cout << "Added VFF data to continuous noise chunk" << std::endl;
-
+        std::cout << "Added VFF data to chunk (mode=" << vffMode << ")" << std::endl;
     }
     catch (const std::exception& e) {
         std::cerr << "WARNING: Failed to add VFF data to chunk: " << e.what() << std::endl;
-        // Continue without VFF data
     }
 }
 
@@ -344,7 +335,7 @@ void GenerationPipeline::initializeGenerators() {
                     << vffLoader_->getLastError() << std::endl;
                 vffLoader_.reset();  // Fall back to no VFF
                 vffConfig_.useVffGenerator = false;
-				vffConfig_.vffType = VffType::NO_VFF;
+                vffConfig_.vffType = VffType::NO_VFF;
                 std::cout << "Falling back to no VFF" << std::endl;
             }
             else {
@@ -469,15 +460,13 @@ void GenerationPipeline::saveVffConfigToFile() const {
         vffFile << "=== VFF Generation Configuration ===" << std::endl;
         vffFile << "Use VFF Generator: " << (vffConfig_.useVffGenerator ? "Yes" : "No") << std::endl;
         vffFile << "VFF Type: " << static_cast<int>(vffConfig_.vffType) << std::endl;
-        vffFile << "Min DC Shift: " << vffConfig_.vffParams.min_dc_shift << std::endl;
-        vffFile << "Max DC Shift: " << vffConfig_.vffParams.max_dc_shift << std::endl;
         vffFile << "Max Amplitude: " << vffConfig_.vffParams.max_amplitude << std::endl;
+        vffFile << "Mean Dwell (samples): " << vffConfig_.vffParams.mean_dwell_samples << std::endl;
+        vffFile << "Min Dwell (samples): " << vffConfig_.vffParams.min_dwell_samples << std::endl;
         vffFile << "Max Frequency: " << vffConfig_.vffParams.max_frequency << std::endl;
-        vffFile << "Sparse Probability: " << vffConfig_.vffParams.sparse_probability << std::endl;
-        vffFile << std::endl;
-        vffFile << "--- Legacy Fields (for compatibility) ---" << std::endl;
-        vffFile << "Min Amplitude (legacy): " << vffConfig_.minAmplitude << std::endl;
-        vffFile << "Max Amplitude (legacy): " << vffConfig_.maxAmplitude << std::endl;
+        vffFile << "Min Frequency: " << vffConfig_.vffParams.min_frequency << std::endl;
+        vffFile << "Min Sines: " << vffConfig_.vffParams.min_num_sines << std::endl;
+        vffFile << "Max Sines: " << vffConfig_.vffParams.max_num_sines << std::endl;
 
         vffFile.close();
         std::cout << "VFF configuration saved to: " << vffConfigPath << std::endl;
@@ -490,7 +479,7 @@ void GenerationPipeline::saveVffConfigToFile() const {
 void GenerationPipeline::saveNoiseConfigToFile() const {
     try {
         std::string configPath = (fs::path(uniqueSessionFolder_) / "config" / "noise_config.txt").make_preferred()
-.string();
+            .string();
         std::ofstream configFile(configPath);
 
         if (!configFile.is_open()) {
@@ -506,7 +495,7 @@ void GenerationPipeline::saveNoiseConfigToFile() const {
         configFile << "Max Frequency: " << noiseParams_.max_frequency << " Hz" << std::endl;
         configFile << "Min Sines: " << noiseParams_.min_num_sines << std::endl;
         configFile << "Max Sines: " << noiseParams_.max_num_sines << std::endl;
-        configFile << "Sparse Probability: " << noiseParams_.sparse_probability << std::endl; 
+        configFile << "Sparse Probability: " << noiseParams_.sparse_probability << std::endl;
         configFile << "Max Deviation Magnitude: " << noiseParams_.max_deviation_magnitude << " mm" << std::endl;
 
         configFile.close();

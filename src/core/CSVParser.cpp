@@ -146,7 +146,7 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         case 0: config.gcodeParams.trajectory_type = TrajectoryType::LINEAR_ONLY; break;
         case 1: config.gcodeParams.trajectory_type = TrajectoryType::CIRCULAR_ONLY; break;
         case 2: config.gcodeParams.trajectory_type = TrajectoryType::MIXED; break;
-		case 3: config.gcodeParams.trajectory_type = TrajectoryType::EXISTING; break;
+        case 3: config.gcodeParams.trajectory_type = TrajectoryType::EXISTING; break;
         default:
             setError("Row " + std::to_string(rowNumber) + ": Invalid trajectory_type: " + std::to_string(trajType));
             return false;
@@ -163,7 +163,7 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         case 1: config.noiseType = KinematicNoiseType::SUM_OF_SINUSOIDS; break;
         case 2: config.noiseType = KinematicNoiseType::SPARSE_INJECTION; break;
         case 3: config.noiseType = KinematicNoiseType::NO_NOISE; break;
-		case 4: config.noiseType = KinematicNoiseType::EXISTING_SEQUENCE; break;
+        case 4: config.noiseType = KinematicNoiseType::EXISTING_SEQUENCE; break;
         default:
             setError("Row " + std::to_string(rowNumber) + ": Invalid noise_type: " + std::to_string(noiseType));
             return false;
@@ -243,33 +243,34 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         // Column 13: vff_type
         int vffType = parseInt(trim(row[13]), 0);
         switch (vffType) {
-        case 0: config.vffConfig.vffType = VffType::SMOOTH_GAUSSIAN; break;
-        case 1: config.vffConfig.vffType = VffType::SMOOTH_GAUSSIAN_DC_SHIFT; break;
-        case 2: config.vffConfig.vffType = VffType::SPARSE_VFF; break;
-        case 3: config.vffConfig.vffType = VffType::NO_VFF;
-                config.vffConfig.useVffGenerator = false; 
-                break;
-		case 4: config.vffConfig.vffType = VffType::EXISTING_SEQUENCE; break;  
-		case 5: config.vffConfig.vffType = VffType::SUM_OF_SINUSOIDS; break;
+        case 0: config.vffConfig.vffType = VffType::NO_VFF;
+            config.vffConfig.useVffGenerator = false;
+            break;
+        case 1: config.vffConfig.vffType = VffType::SQUARE_WAVE; break;
+        case 2: config.vffConfig.vffType = VffType::SMOOTH_RAMP; break;
+        case 3: config.vffConfig.vffType = VffType::SUM_OF_SINUSOIDS; break;
+        case 4: config.vffConfig.vffType = VffType::EXISTING_SEQUENCE; break;
         default:
             setError("Row " + std::to_string(rowNumber) + ": Invalid vff_type: " + std::to_string(vffType));
             return false;
         }
 
-        // Column 14: vff_min_dc
-        config.vffConfig.vffParams.min_dc_shift = parseDouble(trim(row[14]), -5.0);
+        // Column 14: vff_mean_dwell (samples, exponential distribution mean)
+        config.vffConfig.vffParams.mean_dwell_samples = parseDouble(trim(row[14]), 200.0);
+        if (config.vffConfig.vffParams.mean_dwell_samples < 10.0) {
+            setError("Row " + std::to_string(rowNumber) + ": vff_mean_dwell must be >= 10");
+            return false;
+        }
 
-        // Column 15: vff_max_dc
-        config.vffConfig.vffParams.max_dc_shift = parseDouble(trim(row[15]), 5.0);
-
-        // Validate DC shift range
-        if (config.vffConfig.vffParams.min_dc_shift > config.vffConfig.vffParams.max_dc_shift) {
-            setError("Row " + std::to_string(rowNumber) + ": vff_min_dc must be <= vff_max_dc");
+        // Column 15: vff_min_dwell (samples, hard floor)
+        config.vffConfig.vffParams.min_dwell_samples = parseInt(trim(row[15]), 10);
+        if (config.vffConfig.vffParams.min_dwell_samples < 1) {
+            setError("Row " + std::to_string(rowNumber) + ": vff_min_dwell must be >= 1");
             return false;
         }
 
         // Column 16: vff_max_amplitude
-        config.vffConfig.vffParams.max_amplitude = parseDouble(trim(row[16]), 10.0);
+        config.vffConfig.vffParams.max_amplitude = parseDouble(trim(row[16]), 5.0);
         if (config.vffConfig.vffParams.max_amplitude < 0.0) {
             setError("Row " + std::to_string(rowNumber) + ": vff_max_amplitude must be >= 0.0");
             return false;
@@ -282,14 +283,10 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
             return false;
         }
 
-        // Column 18: vff_sparse_prob
-        config.vffConfig.vffParams.sparse_probability = parseDouble(trim(row[18]), 0.02);
-        if (config.vffConfig.vffParams.sparse_probability < 0.0 || config.vffConfig.vffParams.sparse_probability > 1.0) {
-            setError("Row " + std::to_string(rowNumber) + ": vff_sparse_prob must be between 0.0 and 1.0");
-            return false;
-        }
+        // Column 18: reserved (previously vff_sparse_prob, now unused)
+
+        // For SUM_OF_SINUSOIDS, inherit frequency/sine params from noise config
         if (config.vffConfig.vffType == VffType::SUM_OF_SINUSOIDS) {
-            config.vffConfig.vffParams.min_amplitude = config.noiseParams.min_amplitude;
             config.vffConfig.vffParams.max_amplitude = config.noiseParams.max_amplitude;
             config.vffConfig.vffParams.min_frequency = config.noiseParams.min_frequency;
             config.vffConfig.vffParams.max_frequency = config.noiseParams.max_frequency;
@@ -390,7 +387,7 @@ KinematicNoiseType CSVParser::parseNoiseType(const std::string& str) {
     case 1: return KinematicNoiseType::SUM_OF_SINUSOIDS;
     case 2: return KinematicNoiseType::SPARSE_INJECTION;
     case 3: return KinematicNoiseType::NO_NOISE;
-	case 4: return KinematicNoiseType::EXISTING_SEQUENCE;   
+    case 4: return KinematicNoiseType::EXISTING_SEQUENCE;
     default:
         throw std::invalid_argument("Invalid noise_type: " + str);
     }
@@ -399,12 +396,11 @@ KinematicNoiseType CSVParser::parseNoiseType(const std::string& str) {
 VffType CSVParser::parseVffType(const std::string& str) {
     int value = std::stoi(str);
     switch (value) {
-    case 0: return VffType::SMOOTH_GAUSSIAN;
-    case 1: return VffType::SMOOTH_GAUSSIAN_DC_SHIFT;
-    case 2: return VffType::SPARSE_VFF;
-    case 3: return VffType::NO_VFF;
-	case 4: return VffType::EXISTING_SEQUENCE;
-	case 5: return VffType::SUM_OF_SINUSOIDS;
+    case 0: return VffType::NO_VFF;
+    case 1: return VffType::SQUARE_WAVE;
+    case 2: return VffType::SMOOTH_RAMP;
+    case 3: return VffType::SUM_OF_SINUSOIDS;
+    case 4: return VffType::EXISTING_SEQUENCE;
     default:
         throw std::invalid_argument("Invalid vff_type: " + str);
     }
@@ -453,18 +449,6 @@ void CSVParser::setConfigDefaults(ExperimentConfig& config) {
         config.noiseParams.max_num_sines = 8;
     }
 
-
-    // Set VFF parameter defaults
-    config.vffConfig.minAmplitude = 0.1;
-    config.vffConfig.maxAmplitude = config.vffConfig.vffParams.max_amplitude;
-    config.vffConfig.minAlpha = 0.01;
-    config.vffConfig.maxAlpha = 0.2;
-    config.vffConfig.usePerAxisVff = false;
-    config.vffConfig.sparseVffProbability = config.vffConfig.vffParams.sparse_probability;
-    config.vffConfig.minSparseVffAmplitude = 1.0;
-    config.vffConfig.maxSparseVffAmplitude = 25.0;
-    config.vffConfig.fixedAmplitudes = { 0.0, 0.0, 0.0 };
-    config.vffConfig.fixedAlphas = { 0.0, 0.0, 0.0 };
 
     // Set G-code generation defaults
     config.gcodeParams.max_trajectory_time = 2.0;
@@ -534,8 +518,8 @@ bool CSVParser::validateConfig(const ExperimentConfig& config) {
 
     // Validate VFF parameters if enabled
     if (config.vffConfig.useVffGenerator) {
-        if (config.vffConfig.maxAmplitude < 0.0) {
-            setError("Invalid VFF amplitude: " + std::to_string(config.vffConfig.maxAmplitude));
+        if (config.vffConfig.vffParams.max_amplitude < 0.0) {
+            setError("Invalid VFF amplitude: " + std::to_string(config.vffConfig.vffParams.max_amplitude));
             return false;
         }
 
@@ -544,21 +528,6 @@ bool CSVParser::validateConfig(const ExperimentConfig& config) {
             setError("VFF max frequency (" + std::to_string(config.vffConfig.vffParams.max_frequency) +
                 "Hz) exceeds Nyquist limit (2000Hz) for 4kHz controller");
             return false;
-        }
-
-        if (config.vffConfig.vffParams.sparse_probability < 0.0 ||
-            config.vffConfig.vffParams.sparse_probability > 1.0) {
-            setError("Invalid VFF sparse probability: " + std::to_string(config.vffConfig.vffParams.sparse_probability));
-            return false;
-        }
-
-        // Validate DC shift range
-        if (config.vffConfig.vffType == VffType::SMOOTH_GAUSSIAN_DC_SHIFT) {
-            if (config.vffConfig.vffParams.min_dc_shift > config.vffConfig.vffParams.max_dc_shift) {
-                setError("Invalid VFF DC shift range: min=" + std::to_string(config.vffConfig.vffParams.min_dc_shift) +
-                    ", max=" + std::to_string(config.vffConfig.vffParams.max_dc_shift));
-                return false;
-            }
         }
     }
 

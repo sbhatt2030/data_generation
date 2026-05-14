@@ -194,7 +194,8 @@ bool InjectionPipeline::writeSinglePointToSMR() {
     appCmd.dDeviationCmd[X_AXIS] = point.dev_x;
     appCmd.dDeviationCmd[Y_AXIS] = point.dev_y;
     appCmd.dDeviationCmd[Z_AXIS] = point.dev_z;
-    appCmd.iTargetLineNumber = getNextLineNumber();
+    appCmd.iTargetLineNumber     = getNextLineNumber();
+    appCmd.iVffMode              = point.vff_mode;
 
     // Attempt write to SMR
     stats_.writeAttempts++;

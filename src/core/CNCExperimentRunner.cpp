@@ -47,14 +47,7 @@ ExperimentConfig::ExperimentConfig() {
     noiseParams.max_deviation_magnitude = 0.9;
     // Set default VFF configuration
     vffConfig.useVffGenerator = true;
-    vffConfig.vffType = VffType::SMOOTH_GAUSSIAN;
-    vffConfig.minAmplitude = 0.1;
-    vffConfig.maxAmplitude = 10.0;
-    vffConfig.minAlpha = 0.01;
-    vffConfig.maxAlpha = 0.2;
-    vffConfig.usePerAxisVff = false;
-    vffConfig.fixedAmplitudes = { 0.0, 0.0, 0.0 };
-    vffConfig.fixedAlphas = { 0.0, 0.0, 0.0 };
+    vffConfig.vffType = VffType::NO_VFF;
 }
 
 // =============================================================================
@@ -745,4 +738,3 @@ bool CNCExperimentRunner::startExperimentLoop() {
         return false;
     }
 }
-
