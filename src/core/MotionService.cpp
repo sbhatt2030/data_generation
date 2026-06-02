@@ -1,30 +1,29 @@
-//////////////////////////////////////////////////////////////////////////////// 
+////////////////////////////////////////////////////////////////////////////////
 //
 // Name:
 //  MotionService Module
 //
 //  Description:
 //
-//  This module provide data exchanging interfaces between the external motion control 
-//  and internal RT motion control based on the shared memory mechanism. Two shared memories
-//  are created for sending real time data to the external applicaiton and receving command
-//  data from the external application. 
-// 
+//  This module provides data exchanging interfaces between the external motion
+//  control application and the internal RT motion control through two named
+//  shared-memory regions: one carrying RT motion telemetry to the app, the
+//  other carrying command data from the app to RT. Each direction is backed by
+//  a lock-free MPMC FIFO (Libraries/RTContainers/MPMCQueue.h) sitting on an
+//  SMRBuffer, so the hot path performs no kernel transitions.
+//
 //  Module Define
 //
 #define MOTIONSERVICE_CPP
 //
 //  Include files:
-// 
+//
 // Unity Header
 #ifndef UNITY
 #include <windows.h>
-#include <iostream>
 #include "core/MotionService.h"
 #include <cstring>
-#include <cstddef> 
-#include "RtUK.h"
-#include "RtSMR.h"
+#include <cstddef>
 #endif	// UNITY
 //
 //////////////////////////////////////////////////////////////////////////////
@@ -32,30 +31,13 @@
 //////////////////////////////////////////////////////////////////////////////
 // Name:               CONSTANT DEFINITIONS
 //////////////////////////////////////////////////////////////////////////////
-#define MOT_SERVICE_READ_SEMAPHORE   "MotServiceReadSemaphore"
-#define MOT_SERVICE_WRITE_SEMAPHORE  "MotServiceWriteSemaphore"
 #define RT_MOTION_DATA_NAME          "RTMotionData"
 #define APP_CMD_DATA_NAME            "AppCmdData"
-#define CONTROL_FLAGS_NAME           "ExperimentControlFlags"
 
-//Default time interval of every exchanging data between RT and the external application is 1ms. 
-//The allocated shared memory can hold two seconds data
-#define MOTION_SERVICE_MEM_SIZE      8000
-
-
-
-//////////////////////////////////////////////////////////////////////////////
-// Name:                 TYPE DEFINITIONS
-//////////////////////////////////////////////////////////////////////////////
-
-//////////////////////////////////////////////////////////////////////////////
-// Name:               MODULE VARIABLE DEFINITIONSB
-//////////////////////////////////////////////////////////////////////////////
-
-
-//////////////////////////////////////////////////////////////////////////////
-// Name:               FUNCTION PROTOTYPE DEFINITIONS
-//////////////////////////////////////////////////////////////////////////////
+// Poll cadence (passed to OsSleep) used by the App-side Read/Write APIs when
+// the caller supplies a non-zero lWaitTime and the queue is momentarily
+// empty/full. Matches the idiom used by RTConnect.cpp.
+static constexpr unsigned long APP_POLL_INTERVAL = 100;
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -68,61 +50,26 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 MotionService::MotionService(void)
+  : m_RTMotionDataBuffer(RT_MOTION_DATA_NAME),
+    m_AppCmdDataBuffer(APP_CMD_DATA_NAME),
+    m_RTMotionQueue(&m_RTMotionDataBuffer),
+    m_AppCmdQueue(&m_AppCmdDataBuffer),
+    m_MotServiceDiagInfo()
 {
-    m_RTMotionData = MotServiceMemType();
-    m_AppCmdData = MotServiceMemType();
-    m_MotServiceDiagInfo = MotionServiceDiagInfoType();
-    controlFlags_ = nullptr;
-    controlFlagsMemory_ = nullptr;
-};
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Name:
-// MotionService
+// ~MotionService
 //
 // Function Description:
-// Class Destructor
-
+// Class Destructor. The SMRBuffer / MPMCQueue members own and close their
+// shared-memory handles, so the destructor body is empty.
 //
 ///////////////////////////////////////////////////////////////////////////////
 MotionService::~MotionService(void)
 {
-    //m_RTMotionData
-    if (m_RTMotionData.hReadSemaphore != NULL)
-    {
-        OsCloseHandle(m_RTMotionData.hReadSemaphore);
-    }
-
-    if (m_RTMotionData.hWriteSemaphore != NULL)
-    {
-        OsCloseHandle(m_RTMotionData.hWriteSemaphore);
-    }
-
-    if (m_RTMotionData.hSharedMemory != NULL)
-    {
-        OsCloseHandle(m_RTMotionData.hSharedMemory);
-    }
-
-    //m_AppCmdData
-    if (m_AppCmdData.hReadSemaphore != NULL)
-    {
-        OsCloseHandle(m_AppCmdData.hReadSemaphore);
-    }
-
-    if (m_AppCmdData.hWriteSemaphore != NULL)
-    {
-        OsCloseHandle(m_AppCmdData.hWriteSemaphore);
-    }
-
-    if (m_AppCmdData.hSharedMemory != NULL)
-    {
-        OsCloseHandle(m_AppCmdData.hSharedMemory);
-    }
-
-    if (controlFlagsMemory_ != NULL) {
-        OsCloseHandle(controlFlagsMemory_);
-    }
 }
 
 
@@ -132,35 +79,29 @@ MotionService::~MotionService(void)
 // InitMotionService
 //
 // Function Description:
-// Initialize resources owned by the module
+// Initialize the two MPMC queues used to ferry data between the App and RT.
 //
 ///////////////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::InitMotionService(int* pErrCode)
 {
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
+  if (pErrCode == NULL)
+  {
+    return MOT_SERVICE_BAD_PARAMETER_FAILURE;
+  }
 
-    if (pErrCode == NULL)
-    {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
-    }
+  if (m_RTMotionQueue.Init() != MPMCRetCode::SUCCESS)
+  {
+    *pErrCode = MOT_SERVICE_MEM_CREATE_OPEN_FAILURE;
+    return MOT_SERVICE_MEM_CREATE_OPEN_FAILURE;
+  }
 
-    result = MotServiceMemInit(&m_RTMotionData, sizeof(RTMotionDataType), MOTION_SERVICE_MEM_SIZE, RT_MOTION_DATA_NAME);
-    if (result != MOT_SERVICE_INIT_SUCCESS)
-    {
-        *pErrCode = result;
-    }
+  if (m_AppCmdQueue.Init() != MPMCRetCode::SUCCESS)
+  {
+    *pErrCode = MOT_SERVICE_MEM_CREATE_OPEN_FAILURE;
+    return MOT_SERVICE_MEM_CREATE_OPEN_FAILURE;
+  }
 
-    result = MotServiceMemInit(&m_AppCmdData, sizeof(AppCmdDataType), MOTION_SERVICE_MEM_SIZE, APP_CMD_DATA_NAME);
-    if (result != MOT_SERVICE_INIT_SUCCESS)
-    {
-        *pErrCode = result;
-    }
-    return result;
-
-    result = initializeControlFlags();
-    if (result != MOT_SERVICE_INIT_SUCCESS) {
-        *pErrCode = result;
-    }
+  return MOT_SERVICE_INIT_SUCCESS;
 } // InitMotionService
 
   ///////////////////////////////////////////////////////////////////////////////
@@ -169,29 +110,43 @@ MOT_SERVICE_RETURN_CODE MotionService::InitMotionService(int* pErrCode)
   // AppWriteCmdData
   //
   // Function Description:
-  // This function is called by the external applicaiton.
-  // 
-  // Return value:
-  //   None
+  // App-side producer for the App -> RT command stream. On BUFFER_FULL and a
+  // non-zero wait, polls until the deadline elapses.
   //
   ///////////////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::AppWriteCmdData(AppCmdDataType* pMsg, long lWaitTime)
 {
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
+  if (pMsg == NULL)
+  {
+    return MOT_SERVICE_BAD_PARAMETER_FAILURE;
+  }
 
-    if (pMsg == NULL)
+  const bool bWaitForever = (static_cast<DWORD>(lWaitTime) == WAIT_FOREVER);
+  const ULONGLONG deadline = bWaitForever
+                               ? 0
+                               : GetTickCount64() + static_cast<DWORD>(lWaitTime);
+
+  while (true)
+  {
+    MPMCRetCode ret = m_AppCmdQueue.Enqueue(*pMsg);
+    if (ret == MPMCRetCode::SUCCESS)
     {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
+      return MOT_SERVICE_WRITE_SUCCESS;
+    }
+    if (ret != MPMCRetCode::BUFFER_FULL)
+    {
+      m_MotServiceDiagInfo.dwWriteSkipCounts++;
+      return MOT_SERVICE_UNKNOWN_FAILURE;
     }
 
-    result = MotServiceMemWrite(&m_AppCmdData, (void*)pMsg, lWaitTime);
-
-    if (result != MOT_SERVICE_WRITE_SUCCESS)
+    if (lWaitTime == NO_WAIT || (!bWaitForever && GetTickCount64() >= deadline))
     {
-        m_MotServiceDiagInfo.dwWriteSkipCounts++;
+      m_MotServiceDiagInfo.dwWriteSkipCounts++;
+      return MOT_SERVICE_TIMEOUT;
     }
 
-    return result;
+    OsSleep(APP_POLL_INTERVAL);
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -200,82 +155,92 @@ MOT_SERVICE_RETURN_CODE MotionService::AppWriteCmdData(AppCmdDataType* pMsg, lon
 // AppReadMotionData
 //
 // Function Description:
-// This function is called by the external applicaiton.
-// 
-// Return value:
-//   None
+// App-side consumer for the RT -> App motion telemetry stream. On
+// BUFFER_EMPTY and a non-zero wait, polls until the deadline elapses.
 //
 ///////////////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::AppReadMotionData(RTMotionDataType* pMsg, long lWaitTime)
 {
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
+  if (pMsg == NULL)
+  {
+    return MOT_SERVICE_BAD_PARAMETER_FAILURE;
+  }
 
-    if (pMsg == NULL)
+  const bool bWaitForever = (static_cast<DWORD>(lWaitTime) == WAIT_FOREVER);
+  const ULONGLONG deadline = bWaitForever
+                               ? 0
+                               : GetTickCount64() + static_cast<DWORD>(lWaitTime);
+
+  while (true)
+  {
+    MPMCRetCode ret = m_RTMotionQueue.Dequeue(*pMsg);
+    if (ret == MPMCRetCode::SUCCESS)
     {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
+      return MOT_SERVICE_READ_SUCCESS;
+    }
+    if (ret != MPMCRetCode::BUFFER_EMPTY)
+    {
+      m_MotServiceDiagInfo.dwReadSkipCounts++;
+      return MOT_SERVICE_UNKNOWN_FAILURE;
     }
 
-    result = MotServiceMemRead(&m_RTMotionData, pMsg, lWaitTime);
-
-    if (result != MOT_SERVICE_READ_SUCCESS)
+    if (lWaitTime == NO_WAIT || (!bWaitForever && GetTickCount64() >= deadline))
     {
-        m_MotServiceDiagInfo.dwReadSkipCounts++;
+      m_MotServiceDiagInfo.dwReadSkipCounts++;
+      return MOT_SERVICE_TIMEOUT;
     }
 
-    return result;
+    OsSleep(APP_POLL_INTERVAL);
+  }
 } // AppReadMotionData
 
 bool MotionService::AppCheckInputBufferEmpty() const
 {
-    if (controlFlags_ == nullptr) {
-        return true; // If uninitialized, assume empty to avoid blocking
-    }
-    return controlFlags_->rt_input_buffer_empty;
+  return m_AppCmdQueue.IsEmpty();
 }
+
+// Preserves the original signature for external App-process consumers, but
+// now performs the flush directly rather than asking RT to do it. A `false`
+// argument is a no-op (there is no longer a latched request flag to clear).
 bool MotionService::AppSetInputBufferFlushRequest(bool request)
 {
-    if (controlFlags_ == nullptr) {
-        return false;
-    }
-    controlFlags_->app_requests_input_flush = request;
+  if (!request)
+  {
     return true;
+  }
+  return m_AppCmdQueue.Flush() == MPMCRetCode::SUCCESS;
 }
 
 
-///////////////////////////////////////////////////////////////////////////////
-//
-// Name:
-// RTReadAppCmdData
-//
-// Function Description:
-// This function is called by the MotionKernel task without blocking.
-// Return value:
-//   None
-//
-///////////////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////
+  //
+  // Name:
+  // RTReadAppCmdData
+  //
+  // Function Description:
+  // RT-side consumer. Single non-blocking Dequeue; lock-free, no kernel
+  // transitions.
+  //
+  ///////////////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::RTReadAppCmdData(AppCmdDataType* pMsg)
 {
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
+  if (pMsg == NULL)
+  {
+    return MOT_SERVICE_BAD_PARAMETER_FAILURE;
+  }
 
-    if (pMsg == NULL)
-    {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
-    }
+  MPMCRetCode ret = m_AppCmdQueue.Dequeue(*pMsg);
+  if (ret == MPMCRetCode::SUCCESS)
+  {
+    return MOT_SERVICE_READ_SUCCESS;
+  }
 
-    result = MotServiceMemRead(&m_AppCmdData, pMsg, NO_WAIT);
-
-    if (result != MOT_SERVICE_READ_SUCCESS)
-    {
-        m_MotServiceDiagInfo.dwReadSkipCounts++;
-        RTSetInputBufferEmpty(true); // Read times out when empty
-    }
-    else
-    {
-        RTSetInputBufferEmpty(false); // Successfully read, so not empty
-    }
-
-
-    return result;
+  m_MotServiceDiagInfo.dwReadSkipCounts++;
+  if (ret == MPMCRetCode::BUFFER_EMPTY)
+  {
+    return MOT_SERVICE_TIMEOUT;
+  }
+  return MOT_SERVICE_UNKNOWN_FAILURE;
 } // RTReadAppCmdData
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -284,68 +249,35 @@ MOT_SERVICE_RETURN_CODE MotionService::RTReadAppCmdData(AppCmdDataType* pMsg)
 // RTWriteMotionData
 //
 // Function Description:
-// This function is called by the MotionKernel task without blocking.
-// 
-// Return value:
-//   None
+// RT-side producer. Single non-blocking Enqueue.
 //
 ///////////////////////////////////////////////////////////////////////////////
 MOT_SERVICE_RETURN_CODE MotionService::RTWriteMotionData(RTMotionDataType* pMsg)
 {
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
+  if (pMsg == NULL)
+  {
+    return MOT_SERVICE_BAD_PARAMETER_FAILURE;
+  }
 
-    if (pMsg == NULL)
-    {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
-    }
+  MPMCRetCode ret = m_RTMotionQueue.Enqueue(*pMsg);
+  if (ret == MPMCRetCode::SUCCESS)
+  {
+    return MOT_SERVICE_WRITE_SUCCESS;
+  }
 
-    result = MotServiceMemWrite(&m_RTMotionData, (void*)pMsg, NO_WAIT);
-
-    if (result != MOT_SERVICE_WRITE_SUCCESS)
-    {
-        m_MotServiceDiagInfo.dwWriteSkipCounts++;
-    }
-
-    return result;
+  m_MotServiceDiagInfo.dwWriteSkipCounts++;
+  if (ret == MPMCRetCode::BUFFER_FULL)
+  {
+    return MOT_SERVICE_TIMEOUT;
+  }
+  return MOT_SERVICE_UNKNOWN_FAILURE;
 }
 // RTWriteMotionData
 
-bool MotionService::RTCheckInputFlushRequest() const
+unsigned long MotionService::RTAppCmdCount() const
 {
-    if (controlFlags_ == nullptr) {
-        return false;
-    }
-    return controlFlags_->app_requests_input_flush;
+  return m_AppCmdQueue.Count();
 }
-
-bool MotionService::RTSetInputBufferEmpty(bool request)
-{
-    if (controlFlags_ == nullptr) {
-        return false;
-    }
-    controlFlags_->rt_input_buffer_empty = request;
-    return true;
-}
-
-bool MotionService::RTFlushAppCmdBuffer(void)
-{
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
-    int iCounter = 1000;
-    do
-    {
-        AppCmdDataType msg;
-        result = MotServiceMemRead(&m_AppCmdData, &msg, NO_WAIT);;
-        iCounter--;
-    } while (result == MOT_SERVICE_READ_SUCCESS && iCounter > 0);
-
-    if (result != MOT_SERVICE_READ_SUCCESS)
-    {
-        RTSetInputBufferEmpty(true);
-        return true;
-    }
-    return false;
-}
-
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -355,211 +287,9 @@ bool MotionService::RTFlushAppCmdBuffer(void)
 //
 // Function Description:
 // Read internal diagnostic data.
-// 
-// Return value:
-//   None
 //
 ///////////////////////////////////////////////////////////////////////////////
 MotionServiceDiagInfoType MotionService::ReadMotionServiceDiagInfo(void)
 {
-    return m_MotServiceDiagInfo;
+  return m_MotServiceDiagInfo;
 } // ReadMotionServiceDiagInfo
-
-  /////////////////////////////////////////////////////////////////////
-  // Name:
-  // MotServiceMemWrite
-  //
-  // Function Description:
-  //
-  // Return value:
-  // 
-  ///////////////////////////////////////////////////////////////////////
-MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemWrite(MotServiceMemType* pMem, void* pMsg, long lWaitTime)
-{
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
-    long  dwWaitingResult = 0, dwPrevious = 0;
-    int    iOffset = 0;
-
-    if (pMem == NULL || pMsg == NULL)
-    {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
-    }
-
-    dwWaitingResult = OsWaitForSingleObject(pMem->hWriteSemaphore, lWaitTime);
-    switch (dwWaitingResult)
-    {
-    case WAIT_OBJECT_0:
-        iOffset = (pMem->iDataNum) * (pMem->iMsgSize);
-        memcpy((pMem->pDataHead + iOffset), pMsg, pMem->iMsgSize);
-        pMem->iDataNum++;
-        pMem->iDataNum %= (pMem->iMaxMsgNum);
-        //Increase reading message
-        OsReleaseSemaphore(pMem->hReadSemaphore, 1, &dwPrevious);
-        result = MOT_SERVICE_WRITE_SUCCESS;
-        break;
-
-    case WAIT_TIMEOUT:
-        result = MOT_SERVICE_TIMEOUT;
-        break;
-
-    default:
-        break;
-    }
-
-    return result;
-}
-
-/////////////////////////////////////////////////////////////////////
-// Name:
-// MotServiceMemRead
-//
-// Function Description:
-//
-// Return value:
-// 
-///////////////////////////////////////////////////////////////////////
-MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemRead(MotServiceMemType* pMem, void* pMsg, long lWaitTime)
-{
-    MOT_SERVICE_RETURN_CODE result = MOT_SERVICE_UNKNOWN;
-    long  dwWaitingResult = 0, dwPrevious = 0;
-    int    iOffset = 0;
-
-    if (pMem == NULL || pMsg == NULL)
-    {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
-    }
-
-    dwWaitingResult = OsWaitForSingleObject(pMem->hReadSemaphore, lWaitTime);
-    switch (dwWaitingResult)
-    {
-    case WAIT_OBJECT_0:
-        iOffset = (pMem->iDataNum) * (pMem->iMsgSize);
-        memcpy(pMsg, (pMem->pDataHead + iOffset), pMem->iMsgSize);
-        pMem->iDataNum++;
-        pMem->iDataNum %= pMem->iMaxMsgNum;
-
-        //Increase writing message
-        OsReleaseSemaphore(pMem->hWriteSemaphore, 1, NULL);
-        result = MOT_SERVICE_READ_SUCCESS;
-        break;
-
-    case WAIT_TIMEOUT:
-        result = MOT_SERVICE_TIMEOUT;
-        break;
-
-    default:
-        break;
-    }
-
-    return result;
-}
-
-/////////////////////////////////////////////////////////////////////
-// Name:
-// MotServiceMemInit
-//
-// Function Description:
-//
-// Return value:
-// 
-///////////////////////////////////////////////////////////////////////
-MOT_SERVICE_RETURN_CODE MotionService::MotServiceMemInit(MotServiceMemType* pMem, int iMsgSize, int iMaxMsgNum, const char* pName)
-{
-    MotServiceMemType* pData = NULL;
-    char  bTemp[MOT_SERVICE_NAME_SIZE] = { 0 };
-
-    if ((pMem == NULL) || (pName == NULL))
-    {
-        return MOT_SERVICE_BAD_PARAMETER_FAILURE;
-    }
-
-    strcpy_s(pMem->MemName, MOT_SERVICE_NAME_SIZE, pName);
-    pMem->iMaxMsgNum = iMaxMsgNum;
-    pMem->iMsgSize = iMsgSize;
-
-    //Shared memory buffer
-#ifdef UNDER_WIN32
-    pMem->hSharedMemory = OsOpenSharedMemory(SHM_MAP_ALL_ACCESS, FALSE, pMem->MemName, (void**)&(pMem->pDataHead), (pMem->iMsgSize * pMem->iMaxMsgNum));
-#else
-    pMem->hSharedMemory = OsOpenSharedMemory(SHM_MAP_ALL_ACCESS, FALSE, pMem->MemName, (void**)&(pMem->pDataHead));
-#endif
-    if (pMem->hSharedMemory == NULL)
-    {
-#ifndef RTX64_V4
-        pMem->hSharedMemory = OsCreateSharedMemory(PAGE_READWRITE, 0, (pMem->iMsgSize * pMem->iMaxMsgNum), pMem->MemName, (void**)&(pMem->pDataHead));
-#else
-        pMem->hSharedMemory = OsCreateSharedMemory(SHM_MAP_ALL_ACCESS, 0, (pMem->iMsgSize * pMem->iMaxMsgNum), pMem->MemName, (void**)&(pMem->pDataHead));
-#endif
-    }
-
-    if (pMem->hSharedMemory == NULL)
-    {
-        return MOT_SERVICE_MEM_CREATE_OPEN_FAILURE;
-    }
-
-    //Write Semaphore
-    snprintf(&bTemp[0], MOT_SERVICE_NAME_SIZE, "%s_%s", pName, MOT_SERVICE_WRITE_SEMAPHORE);
-    pMem->hWriteSemaphore = OsOpenSemaphore(NULL, FALSE, bTemp);
-    if (pMem->hWriteSemaphore == NULL)
-    {
-        pMem->hWriteSemaphore = OsCreateSemaphore(NULL, pMem->iMaxMsgNum, pMem->iMaxMsgNum, bTemp);
-    }
-
-    if (pMem->hWriteSemaphore == NULL)
-    {
-        return MOT_SERVICE_CREATE_OPEN_WRITE_SEMAPHORE_FAILURE;
-    }
-
-    //Read Semaphore
-    snprintf(&bTemp[0], MOT_SERVICE_NAME_SIZE, "%s_%s", pName, MOT_SERVICE_READ_SEMAPHORE);
-    pMem->hReadSemaphore = OsOpenSemaphore(NULL, FALSE, bTemp);
-    if (pMem->hReadSemaphore == NULL)
-    {
-        pMem->hReadSemaphore = OsCreateSemaphore(NULL, 0, pMem->iMaxMsgNum, bTemp);
-    }
-
-    if (pMem->hReadSemaphore == NULL)
-    {
-        return MOT_SERVICE_CREATE_OPEN_READ_SEMAPHORE_FAILURE;
-    }
-
-    //Initialize the shared memory 
-    memset(pMem->pDataHead, 0x00, (pMem->iMaxMsgNum) * (pMem->iMsgSize));
-    pMem->iDataNum = 0;
-
-    return MOT_SERVICE_INIT_SUCCESS;
-}
-
-MOT_SERVICE_RETURN_CODE MotionService::initializeControlFlags() {
-    // Try to open existing shared memory first
-#ifdef UNDER_WIN32
-    controlFlagsMemory_ = OsOpenSharedMemory(SHM_MAP_ALL_ACCESS, FALSE, CONTROL_FLAGS_NAME,
-        (void**)&controlFlags_, sizeof(ExperimentControlFlags));
-#else
-    controlFlagsMemory_ = OsOpenSharedMemory(SHM_MAP_ALL_ACCESS, FALSE, CONTROL_FLAGS_NAME,
-        (void**)&controlFlags_);
-#endif
-
-    if (controlFlagsMemory_ == NULL) {
-        // Create new shared memory if it doesn't exist
-#ifndef RTX64_V4
-        controlFlagsMemory_ = OsCreateSharedMemory(PAGE_READWRITE, 0, sizeof(ExperimentControlFlags),
-            CONTROL_FLAGS_NAME, (void**)&controlFlags_);
-#else
-        controlFlagsMemory_ = OsCreateSharedMemory(SHM_MAP_ALL_ACCESS, 0, sizeof(ExperimentControlFlags),
-            CONTROL_FLAGS_NAME, (void**)&controlFlags_);
-#endif
-    }
-
-    if (controlFlagsMemory_ == NULL) {
-        return MOT_SERVICE_MEM_CREATE_OPEN_FAILURE;
-    }
-
-    // Initialize the structure 
-    if (controlFlags_) {
-        controlFlags_->app_requests_input_flush = false;
-        controlFlags_->rt_input_buffer_empty = true;
-    }
-
-    return MOT_SERVICE_INIT_SUCCESS;
-}

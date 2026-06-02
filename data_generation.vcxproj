@@ -118,7 +118,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Machine_Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="src\core\test_vff_generator.cpp" />
+    <ClCompile Include="src\core\main.cpp" />
     <ClCompile Include="test_sequence_loader.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Machine_Release|x64'">true</ExcludedFromBuild>
@@ -150,8 +150,10 @@
     <ClInclude Include="include\core\InjectionPipeline.hpp" />
     <ClInclude Include="include\core\input_data_point.hpp" />
     <ClInclude Include="include\core\KinematicNoiseGenerator.hpp" />
+    <ClInclude Include="include\core\ManagedBuffer.h" />
     <ClInclude Include="include\core\MotionService.h" />
     <ClInclude Include="include\core\motion_config.hpp" />
+    <ClInclude Include="include\core\MPMCQueue.h" />
     <ClInclude Include="include\core\NonConsumingBufferMonitor.hpp" />
     <ClInclude Include="include\core\SequenceLoader.hpp" />
     <ClInclude Include="include\core\system_constants.hpp" />
