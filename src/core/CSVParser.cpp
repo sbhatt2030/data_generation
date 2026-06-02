@@ -324,8 +324,8 @@ bool CSVParser::parseRow(const std::vector<std::string>& row, int rowNumber, Exp
         // ================================================================
         // Set remaining defaults and validate
         // ================================================================
-        config.deviationSequenceDir = trim(row[23]);
-        config.vffSequenceDir = trim(row[24]);
+        config.deviationSequenceFile = trim(row[23]);
+        config.vffSequenceFile = trim(row[24]);
         config.GcodeFilePath = trim(row[25]);
 
         setConfigDefaults(config);
@@ -544,23 +544,23 @@ bool CSVParser::validateConfig(const ExperimentConfig& config) {
     }
 
     if (config.noiseType == KinematicNoiseType::EXISTING_SEQUENCE) {
-        if (config.deviationSequenceDir.empty()) {
-            setError("Deviation sequence directory must be specified for EXISTING_SEQUENCE noise type");
+        if (config.deviationSequenceFile.empty()) {
+            setError("Deviation sequence file must be specified for EXISTING_SEQUENCE noise type");
             return false;
         }
-        if (!fs::exists(config.deviationSequenceDir)) {
-            setError("Deviation sequence directory does not exist: " + config.deviationSequenceDir);
+        if (!fs::exists(config.deviationSequenceFile)) {
+            setError("Deviation sequence file does not exist: " + config.deviationSequenceFile);
             return false;
         }
     }
 
     if (config.vffConfig.vffType == VffType::EXISTING_SEQUENCE) {
-        if (config.vffSequenceDir.empty()) {
-            setError("VFF sequence directory must be specified for EXISTING_SEQUENCE VFF type");
+        if (config.vffSequenceFile.empty()) {
+            setError("VFF sequence file must be specified for EXISTING_SEQUENCE VFF type");
             return false;
         }
-        if (!fs::exists(config.vffSequenceDir)) {
-            setError("VFF sequence directory does not exist: " + config.vffSequenceDir);
+        if (!fs::exists(config.vffSequenceFile)) {
+            setError("VFF sequence file does not exist: " + config.vffSequenceFile);
             return false;
         }
     }

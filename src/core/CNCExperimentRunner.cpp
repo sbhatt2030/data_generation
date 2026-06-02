@@ -63,7 +63,7 @@ CNCExperimentRunner::CNCExperimentRunner()
     }
     injectionPipeline_ = std::make_unique<InjectionPipeline>();
     extractionPipeline_ = std::make_unique<ExtractionPipeline>();
-    
+
     std::cout << "CNC Experiment Runner initialized" << std::endl;
 }
 
@@ -209,8 +209,8 @@ bool CNCExperimentRunner::initializePipelines(const ExperimentConfig& experiment
         generationPipeline_->setNoiseType(experimentConfig.noiseType);
         generationPipeline_->setVffConfig(experimentConfig.vffConfig);
 
-        generationPipeline_->setDeviationSequenceDir(experimentConfig.deviationSequenceDir);
-        generationPipeline_->setVffSequenceDir(experimentConfig.vffSequenceDir);
+        generationPipeline_->setDeviationSequenceFile(experimentConfig.deviationSequenceFile);
+        generationPipeline_->setVffSequenceFile(experimentConfig.vffSequenceFile);
 
 
         if (!generationPipeline_->initialize(experimentConfig.GcodeFilePath, experimentConfig.gcodeParams)) {
@@ -313,7 +313,7 @@ bool CNCExperimentRunner::executeMainLoop() {
         //}
 
         // In CNCExperimentRunner::performSingleCycle()
-        
+
     }
 
     std::cout << "Main processing loop completed after " << mainLoopCounter_ << " cycles" << std::endl;
@@ -344,7 +344,7 @@ bool CNCExperimentRunner::shouldContinueExperiment() {
         if (extractionPipeline_) {
             extractionPipeline_->setComplete();  // Set the completion flag
         }
-		motionService_->AppSetInputBufferFlushRequest(true); // Flush injection buffer
+        motionService_->AppSetInputBufferFlushRequest(true); // Flush injection buffer
         return false;
     }
 
@@ -459,19 +459,19 @@ void CNCExperimentRunner::performFinalCleanup() {
     if (injectionPipeline_) {
         injectionPipeline_->finalFlush();
     }
-   
+
     if (extractionPipeline_) {
         extractionPipeline_->finalFlush();
     }
-	int loopCount = 0;
-	bool RtBufferEmpty = false;
+    int loopCount = 0;
+    bool RtBufferEmpty = false;
     const auto loopPeriod = std::chrono::microseconds(
         static_cast<long>(1000000.0 / systemConfig_.systemTiming.mainLoopFrequency));
-	// Wait until the RT buffer is empty  and until at least 4 loop cycles have passed
+    // Wait until the RT buffer is empty  and until at least 4 loop cycles have passed
     while (loopCount < 4 || !RtBufferEmpty) {
-		std::this_thread::sleep_for(loopPeriod);
+        std::this_thread::sleep_for(loopPeriod);
         RtBufferEmpty = motionService_->AppCheckInputBufferEmpty();
-		loopCount++;
+        loopCount++;
     }
     motionService_->AppSetInputBufferFlushRequest(false);
     updateExperimentResult();
@@ -674,12 +674,12 @@ bool CNCExperimentRunner::initializeExperiment(const ExperimentConfig& experimen
 
     std::cout << "Deviations: " << (experimentConfig.noiseType == KinematicNoiseType::EXISTING_SEQUENCE ? "External" : "Generated") << std::endl;
     if (experimentConfig.noiseType == KinematicNoiseType::EXISTING_SEQUENCE) {
-        std::cout << "  Directory: " << experimentConfig.deviationSequenceDir << std::endl;
+        std::cout << "  File: " << experimentConfig.deviationSequenceFile << std::endl;
     }
 
     std::cout << "VFF: " << (experimentConfig.vffConfig.vffType == VffType::EXISTING_SEQUENCE ? "External" : "Generated") << std::endl;
     if (experimentConfig.vffConfig.vffType == VffType::EXISTING_SEQUENCE) {
-        std::cout << "  Directory: " << experimentConfig.vffSequenceDir << std::endl;
+        std::cout << "  File: " << experimentConfig.vffSequenceFile << std::endl;
     }
     std::cout << "====================" << std::endl;
 

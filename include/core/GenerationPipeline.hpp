@@ -15,15 +15,15 @@
 /**
  * Input data point structure for pipeline communication
  */
-//struct InputDataPoint {
-//    double dev_x = 0.0, dev_y = 0.0, dev_z = 0.0;  // Position deviations
-//    double vff_x = 0.0, vff_y = 0.0, vff_z = 0.0;  // VFF signals  
-//    int line_number = -1;                           // G-code line reference
-//};
+ //struct InputDataPoint {
+ //    double dev_x = 0.0, dev_y = 0.0, dev_z = 0.0;  // Position deviations
+ //    double vff_x = 0.0, vff_y = 0.0, vff_z = 0.0;  // VFF signals  
+ //    int line_number = -1;                           // G-code line reference
+ //};
 
-/**
- * VFF configuration
- */
+ /**
+  * VFF configuration
+  */
 
 
 
@@ -101,8 +101,8 @@ public:
     void setMotionConfig(const MotionConfig& config);
     void setNoiseType(KinematicNoiseType type);
 
-    void setDeviationSequenceDir(const std::string& dir) { deviationSequenceDir_ = dir; }
-    void setVffSequenceDir(const std::string& dir) { vffSequenceDir_ = dir; }
+    void setDeviationSequenceFile(const std::string& file) { deviationSequenceFile_ = file; }
+    void setVffSequenceFile(const std::string& file) { vffSequenceFile_ = file; }
 
     // Status getters
     const std::string& getSessionFolder() const { return uniqueSessionFolder_; }
@@ -130,8 +130,8 @@ private:
     KinematicNoiseType noiseType_;
     VffConfig vffConfig_;
 
-    std::string deviationSequenceDir_;  // ← ADD
-    std::string vffSequenceDir_;        // ← ADD
+    std::string deviationSequenceFile_;
+    std::string vffSequenceFile_;
 
     // Continuous generation state
     int continuousChunkCounter_ = 0;

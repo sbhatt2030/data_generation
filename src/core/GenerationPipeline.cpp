@@ -297,8 +297,8 @@ void GenerationPipeline::initializeGenerators() {
     // === DEVIATION/NOISE INITIALIZATION ===
     if (noiseType_ == KinematicNoiseType::EXISTING_SEQUENCE) {
         // Use external deviation loader
-        if (!deviationSequenceDir_.empty()) {
-            deviationLoader_ = std::make_unique<SequenceLoader>(deviationSequenceDir_);
+        if (!deviationSequenceFile_.empty()) {
+            deviationLoader_ = std::make_unique<SequenceLoader>(deviationSequenceFile_);
 
             if (!deviationLoader_->initialize()) {
                 std::cerr << "ERROR: Failed to initialize deviation loader: "
@@ -312,7 +312,7 @@ void GenerationPipeline::initializeGenerators() {
             }
             else {
                 std::cout << "Deviation loader initialized: "
-                    << deviationLoader_->getFileCount() << " files" << std::endl;
+                    << deviationLoader_->getTotalSamples() << " samples" << std::endl;
             }
         }
     }
@@ -327,8 +327,8 @@ void GenerationPipeline::initializeGenerators() {
     // === VFF INITIALIZATION ===
     if (vffConfig_.vffType == VffType::EXISTING_SEQUENCE) {
         // Use external VFF loader
-        if (!vffSequenceDir_.empty()) {
-            vffLoader_ = std::make_unique<SequenceLoader>(vffSequenceDir_);
+        if (!vffSequenceFile_.empty()) {
+            vffLoader_ = std::make_unique<SequenceLoader>(vffSequenceFile_);
 
             if (!vffLoader_->initialize()) {
                 std::cerr << "ERROR: Failed to initialize VFF loader: "
@@ -340,7 +340,7 @@ void GenerationPipeline::initializeGenerators() {
             }
             else {
                 std::cout << "VFF loader initialized: "
-                    << vffLoader_->getFileCount() << " files" << std::endl;
+                    << vffLoader_->getTotalSamples() << " samples" << std::endl;
             }
         }
     }

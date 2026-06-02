@@ -10,14 +10,14 @@ void test_sequence_loader_basic() {
     std::cout << "TEST 1: Basic SequenceLoader Functionality" << std::endl;
     std::cout << std::string(60, '=') << std::endl;
 
-    SequenceLoader loader("C:\\test_sequences\\deviations");
+    SequenceLoader loader("C:\\test_sequences\\deviations.npy");
 
     if (!loader.initialize()) {
         std::cerr << " FAILED: " << loader.getLastError() << std::endl;
         return;
     }
 
-    std::cout << " Initialized: " << loader.getFileCount() << " files found" << std::endl;
+    std::cout << " Initialized: " << loader.getTotalSamples() << " samples loaded" << std::endl;
 
     int chunkCount = 0;
     while (loader.hasMoreData()) {
@@ -57,7 +57,7 @@ void test_sequence_loader_padding() {
     std::cout << "TEST 2: Short File Padding" << std::endl;
     std::cout << std::string(60, '=') << std::endl;
 
-    SequenceLoader loader("C:\\test_sequences\\short_test");
+    SequenceLoader loader("C:\\test_sequences\\short_test.npy");
 
     if (!loader.initialize()) {
         std::cerr << " FAILED: " << loader.getLastError() << std::endl;
@@ -87,9 +87,9 @@ void test_generation_pipeline_with_loaders() {
     config.familyId = "test_family";
     config.outputDirectory = "C:\\test_output";
     config.noiseType = KinematicNoiseType::EXISTING_SEQUENCE;
-    config.deviationSequenceDir = "C:\\test_sequences\\deviations";
+    config.deviationSequenceFile = "C:\\test_sequences\\deviations.npy";
     config.vffConfig.vffType = VffType::EXISTING_SEQUENCE;
-    config.vffSequenceDir = "C:\\test_sequences\\vff";
+    config.vffSequenceFile = "C:\\test_sequences\\vff.npy";
 
     // Create generation pipeline
     GenerationPipeline pipeline(
@@ -107,8 +107,8 @@ void test_generation_pipeline_with_loaders() {
     pipeline.setMotionConfig(motionConfig);
     pipeline.setNoiseType(config.noiseType);
     pipeline.setVffConfig(config.vffConfig);
-    pipeline.setDeviationSequenceDir(config.deviationSequenceDir);
-    pipeline.setVffSequenceDir(config.vffSequenceDir);
+    pipeline.setDeviationSequenceFile(config.deviationSequenceFile);
+    pipeline.setVffSequenceFile(config.vffSequenceFile);
 
     // Initialize (with empty G-code path - will generate dummy)
     GenerationParams genParams;
@@ -173,7 +173,7 @@ void test_csv_parsing() {
         << "noise_type,noise_min_amplitude,noise_max_amplitude,noise_min_freq,noise_max_freq,"
         << "noise_min_sines,noise_max_sines,noise_sparse_prob,vff_type,vff_min_dc,vff_max_dc,"
         << "vff_max_amplitude,vff_max_freq,vff_sparse_prob,master_seed,gcode_seed,noise_seed,"
-        << "vff_seed,deviation_sequence_dir,vff_sequence_dir,gcode_file_path\n";
+        << "vff_seed,deviation_sequence_file,vff_sequence_file,gcode_file_path\n";
     csvFile << "test_ext,family_a,C:\\output,10,2,4,0.001,0.01,0.5,50,3,8,0.03,4,-5,5,10,50,0.02,"
         << "12345,0,0,0,C:\\test_sequences\\deviations,C:\\test_sequences\\vff,\n";
     csvFile.close();
@@ -197,13 +197,13 @@ void test_csv_parsing() {
         return;
     }
 
-    if (exp.deviationSequenceDir != "C:\\test_sequences\\deviations") {
-        std::cerr << " FAILED: Wrong deviation directory" << std::endl;
+    if (exp.deviationSequenceFile != "C:\\test_sequences\\deviations.npy") {
+        std::cerr << " FAILED: Wrong deviation file" << std::endl;
         return;
     }
 
-    if (exp.vffSequenceDir != "C:\\test_sequences\\vff") {
-        std::cerr << " FAILED: Wrong VFF directory" << std::endl;
+    if (exp.vffSequenceFile != "C:\\test_sequences\\vff.npy") {
+        std::cerr << " FAILED: Wrong VFF file" << std::endl;
         return;
     }
 

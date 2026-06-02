@@ -49,7 +49,7 @@ struct SystemConfiguration {
     // System timing
     struct {
         double mainLoopFrequency = SystemConstants::Timing::MAIN_LOOP_FREQUENCY_HZ;
-        double loggingFrequency = SystemConstants::Timing::LOGGING_FREQUENCY_HZ; 
+        double loggingFrequency = SystemConstants::Timing::LOGGING_FREQUENCY_HZ;
         long smrWriteTimeout = 0;              // Non-blocking
         long smrReadTimeout = 0;               // Non-blocking
     } systemTiming;
@@ -86,8 +86,8 @@ struct ExperimentConfig {
     // G-code generation parameters
     GenerationParams gcodeParams;
     std::string GcodeFilePath;        // Optional: use existing file instead of generating
-    std::string deviationSequenceDir;
-	std::string vffSequenceDir;
+    std::string deviationSequenceFile;
+    std::string vffSequenceFile;
     // Noise generation parameters
     KinematicNoiseGenerator::NoiseParams noiseParams;
     KinematicNoiseType noiseType = KinematicNoiseType::SMOOTH_GAUSSIAN_BANDPASS;
@@ -147,7 +147,7 @@ public:
     ~CNCExperimentRunner();
 
     /**
-     * Load system configuration from 
+     * Load system configuration from
      file
      * Called once at startup, before running experiments
      * @param configFile Path to system configuration JSON file
@@ -160,13 +160,13 @@ public:
      * @param experimentConfig Experiment-specific parameters
      * @return true if experiment completed successfully
      */
-    //bool runExperiment(const ExperimentConfig& experimentConfig);
+     //bool runExperiment(const ExperimentConfig& experimentConfig);
 
 
-    /**
-     * NEW: Get the generated G-code file path for CNC machine
-     * @return Full path to generated G-code file
-     */
+     /**
+      * NEW: Get the generated G-code file path for CNC machine
+      * @return Full path to generated G-code file
+      */
     std::string getGeneratedGCodePath() const;
 
 

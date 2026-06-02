@@ -1,94 +1,40 @@
 #include "core/SequenceLoader.hpp"
 #include "core/cnpy.h"
 #include <filesystem>
-#include <algorithm>
 #include <iostream>
-#include <regex>
 #include <cmath>
 
 namespace fs = std::filesystem;
 
-SequenceLoader::SequenceLoader(const std::string& directoryPath)
-    : directoryPath_(directoryPath)
-    , readCursor_(0)
-    , filesLoaded_(0) {
+SequenceLoader::SequenceLoader(const std::string& filePath)
+    : filePath_(filePath)
+    , readCursor_(0) {
 }
 
 bool SequenceLoader::initialize() {
-    if (directoryPath_.empty()) {
-        setError("Directory path is empty");
+    if (filePath_.empty()) {
+        setError("File path is empty");
         return false;
     }
-    if (!fs::exists(directoryPath_)) {
-        setError("Directory does not exist: " + directoryPath_);
+    if (!fs::exists(filePath_)) {
+        setError("File does not exist: " + filePath_);
         return false;
     }
-    if (!fs::is_directory(directoryPath_)) {
-        setError("Path is not a directory: " + directoryPath_);
+    if (!fs::is_regular_file(filePath_)) {
+        setError("Path is not a regular file: " + filePath_);
         return false;
     }
-    return scanAndLoad();
-}
 
-bool SequenceLoader::scanAndLoad() {
     buffer_.clear();
     readCursor_ = 0;
-    filesLoaded_ = 0;
 
-    std::regex npyPattern(R"((\d+)\.npy)");
-    std::vector<std::pair<int, std::string>> numberedFiles;
-
-    try {
-        for (const auto& entry : fs::directory_iterator(directoryPath_)) {
-            if (!entry.is_regular_file()) continue;
-            std::string filename = entry.path().filename().string();
-            std::smatch match;
-            if (std::regex_match(filename, match, npyPattern)) {
-                numberedFiles.push_back({ std::stoi(match[1].str()), entry.path().string() });
-            }
-        }
-    }
-    catch (const std::exception& e) {
-        setError("Error scanning directory: " + std::string(e.what()));
+    if (!loadNpyFile(filePath_, buffer_)) {
         return false;
     }
 
-    if (numberedFiles.empty()) {
-        setError("No .npy files found in directory: " + directoryPath_);
-        return false;
-    }
-
-    std::sort(numberedFiles.begin(), numberedFiles.end(),
-        [](const auto& a, const auto& b) { return a.first < b.first; });
-
-    for (const auto& [number, path] : numberedFiles) {
-        size_t currentBytes = buffer_.size() * sizeof(Eigen::Vector3d);
-        if (currentBytes >= MAX_BUFFER_BYTES) {
-            std::cout << "SequenceLoader: 200MB cap reached, stopping at file "
-                << number << " (" << filesLoaded_ << " files loaded)" << std::endl;
-            break;
-        }
-
-        std::vector<Eigen::Vector3d> fileData;
-        if (!loadNpyFile(path, fileData)) {
-            std::cerr << "WARNING: Skipping " << fs::path(path).filename().string()
-                << ": " << lastError_ << std::endl;
-            continue;
-        }
-
-        buffer_.insert(buffer_.end(), fileData.begin(), fileData.end());
-        filesLoaded_++;
-    }
-
-    if (buffer_.empty()) {
-        setError("No valid data loaded from directory: " + directoryPath_);
-        return false;
-    }
-
-    std::cout << "SequenceLoader: Loaded " << filesLoaded_ << " files, "
-        << buffer_.size() << " samples ("
+    std::cout << "SequenceLoader: Loaded " << buffer_.size() << " samples ("
         << (buffer_.size() * sizeof(Eigen::Vector3d)) / (1024 * 1024)
-        << " MB) into RAM" << std::endl;
+        << " MB) into RAM from " << fs::path(filePath_).filename().string() << std::endl;
 
     return true;
 }
@@ -147,14 +93,32 @@ bool SequenceLoader::loadNpyFile(const std::string& filepath,
             return false;
         }
 
-        double* data = arr.data<double>();
         outData.reserve(rows);
 
-        for (size_t i = 0; i < rows; ++i) {
-            outData.emplace_back(
-                data[i * 3 + 0],
-                data[i * 3 + 1],
-                data[i * 3 + 2]);
+        if (arr.word_size == sizeof(float)) {
+            // float32 — upcast to double
+            float* data = arr.data<float>();
+            for (size_t i = 0; i < rows; ++i) {
+                outData.emplace_back(
+                    static_cast<double>(data[i * 3 + 0]),
+                    static_cast<double>(data[i * 3 + 1]),
+                    static_cast<double>(data[i * 3 + 2]));
+            }
+        }
+        else if (arr.word_size == sizeof(double)) {
+            // float64 — load directly
+            double* data = arr.data<double>();
+            for (size_t i = 0; i < rows; ++i) {
+                outData.emplace_back(
+                    data[i * 3 + 0],
+                    data[i * 3 + 1],
+                    data[i * 3 + 2]);
+            }
+        }
+        else {
+            setError("Unsupported dtype: word_size=" + std::to_string(arr.word_size)
+                + " (expected 4 for float32 or 8 for float64)");
+            return false;
         }
 
         if (!validateData(outData)) {

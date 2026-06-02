@@ -5,18 +5,18 @@
 #include <Eigen/Dense>
 
 /**
- * Loads sequential .npy files containing deviation or VFF data.
- * All files in the directory are loaded into RAM during initialize(),
- * up to the 200MB cap. loadNextChunk() serves data from RAM only.
+ * Loads a single .npy file containing deviation or VFF data.
+ * The entire file is loaded into RAM during initialize().
+ * loadNextChunk() serves data from RAM only — no disk I/O at runtime.
  *
  * Expected file format:
- * - Files named: 0.npy, 1.npy, 2.npy, ...
- * - Shape: (N, 3) where N is any positive number of samples
+ * - Shape: (N, 3) where N is the total number of samples
  * - Data: [x, y, z] samples in millimeters
+ * - Dtype: float32 or float64 (float32 is upcast to double on load)
  */
 class SequenceLoader {
 public:
-    explicit SequenceLoader(const std::string& directoryPath);
+    explicit SequenceLoader(const std::string& filePath);
 
     bool initialize();
 
@@ -26,22 +26,18 @@ public:
 
     void reset();
 
-    size_t getFileCount() const { return filesLoaded_; }
     size_t getTotalSamples() const { return buffer_.size(); }
 
     const std::string& getLastError() const { return lastError_; }
 
 private:
-    static constexpr size_t MAX_BUFFER_BYTES = 200ULL * 1024 * 1024;
     static constexpr size_t CHUNK_SIZE = 8000;
 
-    std::string directoryPath_;
+    std::string filePath_;
     std::vector<Eigen::Vector3d> buffer_;
     size_t readCursor_;
-    size_t filesLoaded_;
     std::string lastError_;
 
-    bool scanAndLoad();
     bool loadNpyFile(const std::string& filepath, std::vector<Eigen::Vector3d>& outData);
     bool validateData(const std::vector<Eigen::Vector3d>& data);
     void setError(const std::string& error);
